@@ -525,6 +525,7 @@ export function PullRequestFiltersMenu({
   filters,
   onFilters,
   authorOptions = [],
+  accountOptions = [],
   labelOptions = [],
   optionScope,
   host,
@@ -549,6 +550,7 @@ export function PullRequestFiltersMenu({
   filters: PullRequestListFilters;
   onFilters: (filters: PullRequestListFilters) => void;
   authorOptions?: ReadonlyArray<PullRequestAuthorFacet>;
+  accountOptions?: ReadonlyArray<string>;
   labelOptions?: ReadonlyArray<PullRequestLabelFacet>;
   optionScope: ReadonlyArray<PullRequestFilterOptionScope>;
   host: string | undefined;
@@ -576,6 +578,7 @@ export function PullRequestFiltersMenu({
     filters.review,
     filters.checks,
     filters.author,
+    filters.account,
     ...selectedLabels,
   ].filter(Boolean).length;
   const updateFilters = (next: Partial<PullRequestListFilters>) =>
@@ -637,6 +640,19 @@ export function PullRequestFiltersMenu({
           onChange={onInvolvement}
         />
         <MenuSeparator />
+        {accountOptions.length > 0 || filters.account ? (
+          <PullRequestFilterRadioSubmenu
+            label={gt("GitHub account")}
+            value={filters.account ?? UNFILTERED_VALUE}
+            options={[
+              { value: UNFILTERED_VALUE, label: gt("All accounts"), Icon: LayersIcon },
+              ...[
+                ...new Set([...accountOptions, ...(filters.account ? [filters.account] : [])]),
+              ].map((account) => ({ value: account, label: account, Icon: UserRoundIcon })),
+            ]}
+            onChange={(account) => updateFilter("account", account)}
+          />
+        ) : null}
         <PullRequestAuthorFilter
           value={filters.author}
           options={authorOptions}

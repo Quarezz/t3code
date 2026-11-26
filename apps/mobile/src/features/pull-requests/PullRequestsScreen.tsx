@@ -249,6 +249,7 @@ export function PullRequestsScreen(
       });
     },
     authors: knownFacets.environmentId === environmentId ? knownFacets.authors : facets.authors,
+    accounts: result.data.accounts,
     labels: knownFacets.environmentId === environmentId ? knownFacets.labels : facets.labels,
     labelColors,
     projects,

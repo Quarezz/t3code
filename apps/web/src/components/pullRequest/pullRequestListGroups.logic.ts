@@ -64,7 +64,12 @@ export function pullRequestGroups({
     const involvementEntries = filterPullRequestsByInvolvement(rows, viewers, involvement);
     return hasLocalFilters
       ? involvementEntries.filter((entry) =>
-          matchesPullRequestFilters(entry, localFilters, pullRequestEntryViewer(entry, viewers)),
+          matchesPullRequestFilters(
+            entry,
+            localFilters,
+            pullRequestEntryViewer(entry, viewers),
+            involvement,
+          ),
         )
       : involvementEntries;
   };
@@ -102,18 +107,32 @@ export function pullRequestGroups({
   const groups = (() => {
     if (involvement !== "all") return [{ key: "others" as const, label: "", entries }];
     if (baselineEmpty) {
-      return groupPullRequestsByInvolvement(entries, viewers);
+      return groupPullRequestsByInvolvement(entries, viewers, localFilters.account);
     }
-    const narrow = (rows: ReadonlyArray<EnvironmentPullRequestEntry> | undefined) =>
+    const narrow = (
+      rows: ReadonlyArray<EnvironmentPullRequestEntry> | undefined,
+      role: PullRequestInvolvement,
+    ) =>
       rows === undefined || !hasLocalFilters
         ? rows
         : rows.filter((entry) =>
-            matchesPullRequestFilters(entry, localFilters, pullRequestEntryViewer(entry, viewers)),
+            matchesPullRequestFilters(
+              entry,
+              localFilters,
+              pullRequestEntryViewer(entry, viewers),
+              role,
+            ),
           );
-    const narrowedAuthored = narrow(partitionsWanted ? (authored ?? held?.authored) : undefined);
-    const narrowedReviewing = narrow(partitionsWanted ? (reviewing ?? held?.reviewing) : undefined);
+    const narrowedAuthored = narrow(
+      partitionsWanted ? (authored ?? held?.authored) : undefined,
+      "authored",
+    );
+    const narrowedReviewing = narrow(
+      partitionsWanted ? (reviewing ?? held?.reviewing) : undefined,
+      "reviewing",
+    );
     if (narrowedAuthored === undefined || narrowedReviewing === undefined) {
-      return groupPullRequestsByInvolvement(entries, viewers);
+      return groupPullRequestsByInvolvement(entries, viewers, localFilters.account);
     }
     return partitionPullRequestsWithPriority(entries, narrowedAuthored, narrowedReviewing);
   })();

@@ -1,4 +1,9 @@
 {
+  "7ec27b93651bc46a": "Cuenta de GitHub",
+  "a79e362e42d1ae09": "Todas las cuentas",
+  "a7dc48fe322fc166": "Elige qué cuentas con sesión iniciada se incluyen en las solicitudes de incorporación de cambios.",
+  "21672c06e02e6407": "No hay ninguna cuenta seleccionada con sesión iniciada.",
+  "1dd1fac5db4e79e9": "Usar todas las cuentas con sesión iniciada",
   "7ef0646c7c3fa3a3": "Se solicitó una revisión a {account}",
   "6c6e16b9488f8b91": "Desplázate para leerlo todo.",
   "035aab5e99159bd8": "{count, plural, one {… No se muestra {hidden} carácter del medio.} other {… No se muestran {hidden} caracteres del medio.}} El texto termina con:",

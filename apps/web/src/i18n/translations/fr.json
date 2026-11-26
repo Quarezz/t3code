@@ -1,4 +1,9 @@
 {
+  "7ec27b93651bc46a": "Compte GitHub",
+  "a79e362e42d1ae09": "Tous les comptes",
+  "a7dc48fe322fc166": "Choisissez les comptes connectés à inclure dans les pull requests.",
+  "21672c06e02e6407": "Aucun des comptes sélectionnés n’est connecté.",
+  "1dd1fac5db4e79e9": "Utiliser tous les comptes connectés",
   "7ef0646c7c3fa3a3": "Relecture demandée à {account}",
   "6c6e16b9488f8b91": "Faites défiler pour tout lire.",
   "035aab5e99159bd8": "{count, plural, one {… {hidden} caractère au milieu n’est pas affiché.} other {… {hidden} caractères au milieu ne sont pas affichés.}} Le texte se termine par :",

@@ -9,7 +9,7 @@ import { usePullRequestCloseBatch } from "~/components/pullRequest/usePullReques
 import { SidebarPointerSensor } from "~/components/Sidebar.pointer";
 import { resolveSidebarSweepKeys } from "~/components/Sidebar.logic";
 import { sortProjectsByGroupOrder } from "@t3tools/client-runtime/state/project-grouping";
-import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import { pullRequestAccountChoices, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   ProjectId,
@@ -289,6 +289,7 @@ export function PullRequestsPage() {
           ...(next.review ? { review: next.review } : {}),
           ...(next.checks ? { checks: next.checks } : {}),
           ...(next.author ? { author: next.author } : {}),
+          ...(next.account ? { account: next.account } : {}),
           ...(next.labels && next.labels.length > 0 ? { labels: next.labels } : {}),
         };
       },
@@ -334,7 +335,7 @@ export function PullRequestsPage() {
   const turnRefreshToken = turnRefreshes
     .map(([environmentId, revision]) => `${environmentId}:${revision}`)
     .join("|");
-  const scopeKey = `${environmentKey}:${assignmentKey}:${search.state}:${search.involvement}:${scopedProjectId ?? ""}:${search.host ?? ""}:${search.draft ?? ""}:${search.review ?? ""}:${search.checks ?? ""}:${search.author ?? ""}:${search.labels?.join("\u0000") ?? ""}`;
+  const scopeKey = `${environmentKey}:${assignmentKey}:${search.state}:${search.involvement}:${scopedProjectId ?? ""}:${search.host ?? ""}:${search.draft ?? ""}:${search.review ?? ""}:${search.checks ?? ""}:${search.author ?? ""}:${search.account ?? ""}:${search.labels?.join("\u0000") ?? ""}`;
   const filterKey = `${scopeKey}:${sentQuery}`;
   const statsScope: PullRequestStatsScope = { key: filterKey, policy: statsPolicy };
   const [page, setPage] = useState<{
@@ -1400,10 +1401,14 @@ export function PullRequestsPage() {
           review: next.review,
           checks: next.checks,
           author: next.author,
+          account: next.account,
           labels: next.labels?.flatMap((group) => group),
         });
       }}
       authorOptions={facets.authors}
+      accountOptions={pullRequestAccountChoices(
+        baselineQuery.data?.providers ?? listData?.providers ?? [],
+      )}
       labelOptions={facets.labels}
       optionScope={filterOptionScope}
       host={search.host}

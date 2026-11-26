@@ -2,6 +2,8 @@ import { pullRequestFilterProjects } from "@t3tools/client-runtime/pull-request-
 import { parsePullRequestQuery } from "@t3tools/client-runtime/pull-request-query";
 import {
   ProjectId,
+  pullRequestAccountChoices,
+  pullRequestMatchesAccount,
   resolvePullRequestAuthorFilter,
   type EnvironmentId,
   type PullRequestDiffStat,
@@ -231,6 +233,7 @@ export function mergeEnvironmentPullRequestPages(
   return {
     entries,
     viewers,
+    accounts: pullRequestAccountChoices(sources.flatMap(({ pages }) => pages.head.providers)),
     localSearchHosts,
     errors,
     continued: sources.some(({ pages }) => pages.continued),
@@ -422,6 +425,11 @@ export function filterPullRequestList<
       return false;
     const viewerKey = entry.environmentId ? `${entry.environmentId} ${entry.host}` : entry.host;
     const viewer = entry.viewerLogin ?? viewers[viewerKey];
+    if (
+      filters.account &&
+      !pullRequestMatchesAccount(entry, filters.account, viewer, controls.involvement)
+    )
+      return false;
     if (controls.involvement === "reviewing" && !entry.viewerReviewRequested) return false;
     if (
       controls.involvement === "authored" &&

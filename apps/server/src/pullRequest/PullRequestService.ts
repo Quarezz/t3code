@@ -18,6 +18,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import {
   PullRequestOperationError,
   PullRequestUnavailableError,
+  pullRequestMatchesAccount,
   resolvePullRequestAuthorFilter,
   type OrchestrationProjectShell,
   type ProjectId,
@@ -1428,7 +1429,7 @@ export const make = Effect.gen(function* () {
     const viewers = input.project.credentialScope?.viewerLogins ?? [input.viewer];
     const author = input.item.author?.login.toLowerCase();
     const authoredBy = viewers.find((login) => login.toLowerCase() === author);
-    const reviewingAs = viewers.find(
+    const reviewingAs = viewers.filter(
       (login) =>
         login.toLowerCase() !== author &&
         input.item.reviewRequestLogins.some(
@@ -1465,8 +1466,11 @@ export const make = Effect.gen(function* () {
       ...(input.item.visibility === undefined ? {} : { visibility: input.item.visibility }),
       ...(input.project.credentialScope === undefined
         ? {}
-        : { viewerLogin: authoredBy ?? reviewingAs ?? input.viewer }),
-      viewerReviewRequested: reviewingAs !== undefined,
+        : { viewerLogin: authoredBy ?? reviewingAs[0] ?? input.viewer }),
+      ...(reviewingAs.length + Number(authoredBy !== undefined) > 1
+        ? { viewerLogins: authoredBy === undefined ? reviewingAs : [authoredBy, ...reviewingAs] }
+        : {}),
+      viewerReviewRequested: reviewingAs.length > 0,
       labels: input.item.labels,
       ...(input.item.reviewDecision === undefined || input.item.reviewDecision === null
         ? {}
@@ -1507,8 +1511,14 @@ export const make = Effect.gen(function* () {
 
     const providers: ReadonlyArray<PullRequestProviderSummary> = [
       ...[...providerViewers.values()].map((result) => {
-        const capabilities = projects.find((project) => project.host === result.host)?.api
-          .capabilities;
+        const onHost = projects.filter((project) => project.host === result.host);
+        const capabilities = onHost[0]?.api.capabilities;
+        const viewerLogins = new Set(
+          onHost.flatMap((project) => {
+            const viewer = logins.get(viewerKeyOf(project));
+            return viewer === undefined ? [] : (project.credentialScope?.viewerLogins ?? [viewer]);
+          }),
+        );
         return {
           host: result.host,
           kind: result.kind,
@@ -1517,6 +1527,7 @@ export const make = Effect.gen(function* () {
           projectCount: projectCounts.get(result.host) ?? 1,
           projectIds: refinedProjectIdsByHost.get(result.host),
           configured: result.viewer !== null,
+          ...(result.kind === "github" ? { viewerLogins: [...viewerLogins] } : {}),
           detail: result.error === null ? null : providerDetail(requirementOf, result.error),
         };
       }),
@@ -1571,12 +1582,17 @@ export const make = Effect.gen(function* () {
 
     const limit = input.limit ?? DEFAULT_REPOSITORY_LIST_LIMIT;
     const authorIsMe = /^@?me$/i.test(input.filters?.author?.trim() ?? "");
+    const accountFilter = input.filters?.account;
     const readInvolvement = (project: SupportedProject): PullRequestInvolvement =>
       hasMultipleViewers(project) ? "all" : involvement;
     const readFilters = (project: SupportedProject): PullRequestListFilters | undefined => {
-      if (!hasMultipleViewers(project) || !input.filters || !authorIsMe) return input.filters;
-      const { author: _, ...rest } = input.filters;
-      return rest;
+      if (!input.filters) return undefined;
+      if (accountFilter === undefined && !(hasMultipleViewers(project) && authorIsMe))
+        return input.filters;
+      const { account: _, author, ...rest } = input.filters;
+      return (hasMultipleViewers(project) && authorIsMe) || author === undefined
+        ? rest
+        : { ...rest, author };
     };
     const toEntries = (
       project: SupportedProject,
@@ -1587,6 +1603,11 @@ export const make = Effect.gen(function* () {
       items.flatMap((item) => {
         const entry = toEntry({ project, item, viewer, observedAt });
         const rowViewer = entry.viewerLogin ?? viewer;
+        if (
+          accountFilter !== undefined &&
+          !pullRequestMatchesAccount(entry, accountFilter, viewer, involvement)
+        )
+          return [];
         if (!matchesRowFilters(item, input.filters, rowViewer)) return [];
         if (hasMultipleViewers(project)) {
           if (involvement === "reviewing" && !entry.viewerReviewRequested) return [];
@@ -1798,7 +1819,16 @@ export const make = Effect.gen(function* () {
     const separate: Array<SupportedProject> = [];
     for (const project of readable) {
       if (
+        accountFilter !== undefined &&
+        (project.kind !== "github" ||
+          !(project.credentialScope?.viewerLogins ?? [logins.get(viewerKeyOf(project)) ?? ""]).some(
+            (login) => login.toLowerCase() === accountFilter.toLowerCase(),
+          ))
+      )
+        continue;
+      if (
         project.api.listChangeRequestsAcross === undefined ||
+        accountFilter !== undefined ||
         (hasMultipleViewers(project) && (involvement !== "all" || authorIsMe))
       ) {
         separate.push(project);
@@ -3291,12 +3321,13 @@ export const make = Effect.gen(function* () {
       string | ReadonlyArray<string> | ReadonlyArray<ReadonlyArray<string>> | null
     >,
   ): PullRequestListFilters => {
-    const [draft, review, checks, author, labels, excludedLabels] = slots;
+    const [draft, review, checks, author, labels, excludedLabels, account] = slots;
     return {
       ...(typeof draft === "string" ? { draft: draft as "only" | "hide" } : {}),
       ...(typeof review === "string" ? { review: review as PullRequestListFilters["review"] } : {}),
       ...(typeof checks === "string" ? { checks: checks as PullRequestListFilters["checks"] } : {}),
       ...(typeof author === "string" ? { author } : {}),
+      ...(typeof account === "string" ? { account } : {}),
       ...(Array.isArray(labels) ? { labels: labels as ReadonlyArray<ReadonlyArray<string>> } : {}),
       ...(Array.isArray(excludedLabels) ? { excludedLabels } : {}),
     };
@@ -3442,6 +3473,7 @@ export const make = Effect.gen(function* () {
             input.filters.author ?? null,
             input.filters.labels ?? null,
             input.filters.excludedLabels ?? null,
+            input.filters.account ?? null,
           ],
       input.projectId ?? null,
       input.projectIds === undefined ? null : [...input.projectIds].sort(),
@@ -4308,6 +4340,14 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
+
+  const credentialChanges = yield* serverSettings.subscribeChanges;
+  yield* credentialChanges.pipe(
+    Stream.map((settings) => JSON.stringify(settings.sourceControlHosts.github?.hosts ?? {})),
+    Stream.changes,
+    Stream.runForEach(() => invalidate({}, { notifyReaders: true })),
+    Effect.forkScoped,
+  );
 
   return PullRequestService.of({
     withSharedProjectReads,

@@ -22,15 +22,19 @@ const TOKEN_VARIABLES = [
 
 const ENTERPRISE_TOKEN_VARIABLES = ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"] as const;
 
-const hostSettings = (
-  hosts: Record<string, { readonly account?: string; readonly enabled?: boolean }>,
-) =>
+type HostChoice = {
+  readonly account?: string;
+  readonly enabled?: boolean;
+  readonly pullRequestAccounts?: readonly [string, ...string[]];
+};
+
+const hostSettings = (hosts: Record<string, HostChoice>) =>
   Object.fromEntries(
     Object.entries(hosts).map(([host, choice]) => [host, { enabled: true, ...choice }]),
   );
 
 function harness(
-  hosts: Record<string, { readonly account?: string; readonly enabled?: boolean }> = {},
+  hosts: Record<string, HostChoice> = {},
   signedOut: ReadonlyArray<string> = [],
   tokens: Record<string, string> = {},
   ghAccounts: ReadonlyArray<{
@@ -131,11 +135,33 @@ describe("GitHubCredentials", () => {
     return Effect.gen(function* () {
       const credentials = yield* GitHubCredentials.GitHubCredentials;
       const accounts = yield* credentials.pullRequestAccounts("github.com");
-      expect(accounts.map(({ account }) => account)).toEqual(["personal", "work"]);
+      expect(accounts.accounts.map(({ account }) => account)).toEqual(["personal", "work"]);
       expect(yield* credentials.pullRequestAccounts("github.com")).toEqual(accounts);
       expect(calls).toHaveLength(1);
     }).pipe(Effect.provide(layer));
   });
+
+  it.effect(
+    "keeps multiple selected PR accounts and excludes the active login if unchecked",
+    () => {
+      const { layer } = harness(
+        { "github.com": { pullRequestAccounts: ["Work", "project"] } },
+        [],
+        {},
+        [
+          { login: "personal", active: true, state: "success" },
+          { login: "work", active: false, state: "success" },
+          { login: "project", active: false, state: "success" },
+        ],
+      );
+      return Effect.gen(function* () {
+        const credentials = yield* GitHubCredentials.GitHubCredentials;
+        const selection = yield* credentials.pullRequestAccounts("github.com");
+        expect(selection.accounts.map(({ account }) => account)).toEqual(["work", "project"]);
+        expect(selection.restrictedTo).toBe("work");
+      }).pipe(Effect.provide(layer));
+    },
+  );
 
   it.effect("uses the requested PR login and never falls back to a different account", () => {
     vi.stubEnv("GH_TOKEN", "from-env");

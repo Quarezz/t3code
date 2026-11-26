@@ -23,7 +23,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as GitHubClient from "../shared/definition.ts";
-import { parseGitHubAuthStatus, type GitHubAuthStatusAccount } from "./gitHubAuthStatus.ts";
+import { parseGitHubAuthStatus } from "./gitHubAuthStatus.ts";
 import { makeGhProcess } from "./gitHubCliProcess.ts";
 
 /**
@@ -113,9 +113,10 @@ export class GitHubCredentials extends Context.Service<
     readonly get: (
       host: string,
     ) => Effect.Effect<GitHubCredential, GitHubCredentialUnavailableError>;
-    readonly pullRequestAccounts: (
-      host: string,
-    ) => Effect.Effect<ReadonlyArray<GitHubAuthStatusAccount>>;
+    readonly pullRequestAccounts: (host: string) => Effect.Effect<{
+      readonly accounts: ReadonlyArray<{ readonly account: string; readonly active: boolean }>;
+      readonly restrictedTo?: string;
+    }>;
     /** The token saved in Settings for `host`, which outranks every other source. */
     readonly saved: (
       host: string,
@@ -334,18 +335,33 @@ export const make = Effect.gen(function* () {
   return GitHubCredentials.of({
     pullRequestAccounts: Effect.fn("GitHubCredentials.pullRequestAccounts")(function* (rawHost) {
       const host = normalizeHost(rawHost);
-      if (!isGitHubHost(host) || environmentToken(host, environment) !== null) return [];
-      if ((yield* hostChoice(host))?.enabled === false) return [];
+      if (!isGitHubHost(host) || environmentToken(host, environment) !== null)
+        return { accounts: [] };
+      const choice = yield* hostChoice(host);
+      if (choice?.enabled === false) return { accounts: [] };
       const saved = yield* savedToken(host).pipe(Effect.option);
-      if (Option.isNone(saved) || saved.value !== null) return [];
-      return yield* Cache.get(ghAccounts, host);
+      if (Option.isNone(saved) || saved.value !== null) return { accounts: [] };
+      const accounts = yield* Cache.get(ghAccounts, host);
+      const selected = choice?.pullRequestAccounts;
+      if (selected === undefined) return { accounts };
+      const allowed = new Set(selected.map((login) => login.toLowerCase()));
+      const matching = accounts.filter(({ account }) => allowed.has(account.toLowerCase()));
+      return { accounts: matching, restrictedTo: matching[0]?.account ?? selected[0] };
     }),
     get: Effect.fn("GitHubCredentials.get")(function* (rawHost) {
       const host = normalizeHost(rawHost);
       const selected = yield* PullRequestGitHubAccount;
       if (selected?.host === host) {
-        if ((yield* hostChoice(host))?.enabled === false) {
+        const choice = yield* hostChoice(host);
+        if (choice?.enabled === false) {
           return yield* new GitHubHostDisabledError({ host });
+        }
+        if (
+          choice?.pullRequestAccounts?.every(
+            (account) => account.toLowerCase() !== selected.account.toLowerCase(),
+          )
+        ) {
+          return yield* new GitHubNotSignedInError({ host, account: selected.account });
         }
         return yield* Cache.get(cache, cacheKey(host, selected.account, true));
       }

@@ -130,7 +130,7 @@ const mockedCredential =
     ) => Effect.Effect<GitHubRequestPolicy.GitHubHeldCredential, GitHubRequestPolicy.GitHubApiError>
   >(defaultCredential);
 const mockedAccounts = vi.fn<GitHubCredentials.GitHubCredentials["Service"]["pullRequestAccounts"]>(
-  () => Effect.succeed([]),
+  () => Effect.succeed({ accounts: [] }),
 );
 const mockedStackMemberships = vi.fn<(call: ApiCall) => ApiAnswer>(() =>
   Effect.succeed(output('{"data":{}}')),
@@ -678,7 +678,7 @@ it.effect(
               fingerprint: `${host}:${activeToken.length}${activeToken.at(-1)}`,
             })),
           saved: () => Effect.succeedNone,
-          pullRequestAccounts: () => Effect.succeed([]),
+          pullRequestAccounts: () => Effect.succeed({ accounts: [] }),
           fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
           invalidate: () => Effect.void,
         }),
@@ -758,16 +758,12 @@ layer("GitHubPullRequestApi.layer", (it) => {
       Effect.gen(function* () {
         const host = "github.com";
         mockedAccounts.mockReturnValue(
-          Effect.succeed(
-            ["personal", "work"].map((account) => ({
-              host,
+          Effect.succeed({
+            accounts: ["personal", "work"].map((account) => ({
               account,
               active: account === "personal",
-              authenticated: true,
-              error: null,
-              environmentVariable: null,
             })),
-          ),
+          }),
         );
         mockedExecute.mockImplementation((call) =>
           Effect.gen(function* () {
@@ -796,6 +792,19 @@ layer("GitHubPullRequestApi.layer", (it) => {
             sharedRepo?.provide(GitHubCredentials.PullRequestGitHubAccount) ?? Effect.succeed(null)
           ),
         ).toEqual({ host, account: "work" });
+        mockedAccounts.mockReturnValue(
+          Effect.succeed({
+            accounts: [{ account: "personal", active: true }],
+            restrictedTo: "personal",
+          }),
+        );
+        const restricted = yield* scope({ host, repository: "org/shared" });
+        expect(restricted?.viewerLogins).toEqual(["personal"]);
+        expect(
+          yield* (
+            restricted?.provide(GitHubCredentials.PullRequestGitHubAccount) ?? Effect.succeed(null)
+          ),
+        ).toEqual({ host, account: "personal" });
         expect(yield* GitHubCredentials.PullRequestGitHubAccount).toBeNull();
       }),
   );

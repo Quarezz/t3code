@@ -1398,41 +1398,57 @@ export const make = Effect.gen(function* () {
         ),
     };
   };
-  const repositoryAccounts = yield* Cache.makeWith(
-    Effect.fnUntraced(function* (key: string) {
-      const [host = "", repository = ""] = key.split("\0");
-      const accounts = yield* credentials.pullRequestAccounts(host);
+  const repositoryAccess = yield* Cache.makeWith(
+    (key: string) => {
+      const [host = "", owner = "", name = "", account = ""] = key.split("\0");
+      return accountScope(host, account)
+        .provide(
+          api
+            .rest({
+              host,
+              operation: "resolvePullRequestAccount",
+              path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+            })
+            .pipe(Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, null)),
+        )
+        .pipe(
+          Effect.map(({ body }) => {
+            const response = Option.getOrUndefined(repositoryPermissions(body));
+            return response?.permissions?.push ? 3 : response?.permissions?.triage ? 2 : 1;
+          }),
+          Effect.option,
+        );
+    },
+    { capacity: 1024, timeToLive: () => Duration.minutes(2) },
+  );
+  const repositoryCredentialScope = Effect.fn("GitHubPullRequestApi.repositoryCredentialScope")(
+    function* ({
+      host: rawHost,
+      repository,
+    }: {
+      readonly host: string;
+      readonly repository: string;
+    }) {
+      const host = normalizeHost(rawHost);
+      const { accounts, restrictedTo } = yield* credentials.pullRequestAccounts(host);
+      if (accounts.length <= 1 && restrictedTo !== undefined) {
+        return {
+          ...accountScope(host, restrictedTo),
+          viewerLogins: accounts.map(({ account }) => account),
+        };
+      }
       if (accounts.length === 0 || (accounts.length === 1 && accounts[0]?.active)) return undefined;
-      const { owner, name } = parseRepositorySelector(repository);
+      const { owner, name } = parseRepositorySelector(repository.toLowerCase());
       if (!owner || !name) return undefined;
-      const readable = yield* Effect.forEach(
+      const access = yield* Effect.forEach(
         accounts,
         (account) =>
-          accountScope(host, account.account)
-            .provide(
-              api
-                .rest({
-                  host,
-                  operation: "resolvePullRequestAccount",
-                  path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
-                })
-                .pipe(Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, null)),
-            )
-            .pipe(
-              Effect.map(({ body }) => {
-                const response = Option.getOrUndefined(repositoryPermissions(body));
-                const rank = response?.permissions?.push
-                  ? 3
-                  : response?.permissions?.triage
-                    ? 2
-                    : 1;
-                return { ...account, rank };
-              }),
-              Effect.option,
-            ),
+          Cache.get(repositoryAccess, [host, owner, name, account.account].join("\0")).pipe(
+            Effect.map((result) => Option.map(result, (rank) => ({ ...account, rank }))),
+          ),
         { concurrency: 2 },
       );
-      const choices = readable
+      const choices = access
         .filter(Option.isSome)
         .map((result) => result.value)
         .sort(
@@ -1442,15 +1458,14 @@ export const make = Effect.gen(function* () {
             Number(b.active) - Number(a.active) ||
             a.account.localeCompare(b.account),
         );
-      const account = choices[0]?.account;
+      const account = choices[0]?.account ?? restrictedTo;
       return account === undefined
         ? undefined
         : ({
             ...accountScope(host, account),
             viewerLogins: choices.map((choice) => choice.account),
           } satisfies PullRequestCredentialScope);
-    }),
-    { capacity: 512, timeToLive: () => Duration.seconds(30) },
+    },
   );
 
   // The last ETag and body of each polled REST read, so an unchanged answer comes back as a
@@ -2058,10 +2073,7 @@ export const make = Effect.gen(function* () {
   }).pipe(RequestResolver.batchN(FILES_VIEWED_PER_REQUEST));
 
   return GitHubPullRequestApi.of({
-    repositoryCredentialScope: Effect.fn("GitHubPullRequestApi.repositoryCredentialScope")(
-      ({ host, repository }) =>
-        Cache.get(repositoryAccounts, `${normalizeHost(host)}\0${repository.toLowerCase()}`),
-    ),
+    repositoryCredentialScope,
     withVerifiedCredential,
     revalidateChecks,
     getRoutingIdentity,

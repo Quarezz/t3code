@@ -232,7 +232,7 @@ function harness(input: {
                 fingerprint: `${host}:token`,
               })),
           saved: () => Effect.succeedNone,
-          pullRequestAccounts: () => Effect.succeed([]),
+          pullRequestAccounts: () => Effect.succeed({ accounts: [] }),
           fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
           invalidate: () => Effect.void,
         }),

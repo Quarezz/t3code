@@ -1,7 +1,7 @@
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { msg } from "gt-react";
 
-import { resolvePullRequestAuthorFilter } from "@t3tools/contracts";
+import { pullRequestMatchesAccount, resolvePullRequestAuthorFilter } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   PullRequestListEntry,
@@ -277,6 +277,7 @@ export function matchesPullRequestFilters(
   entry: PullRequestListEntry,
   filters: PullRequestListFilters,
   viewer?: string | null,
+  involvement?: PullRequestInvolvement,
 ): boolean {
   const labels = entry.labels.map((label) => label.name.trim().toLowerCase());
   const holds = (label: string) => labels.includes(label.trim().toLowerCase());
@@ -288,6 +289,8 @@ export function matchesPullRequestFilters(
         : entry.reviewDecision === filters.review)) &&
     (filters.labels === undefined || filters.labels.every((group) => group.some(holds))) &&
     (filters.excludedLabels === undefined || !filters.excludedLabels.some(holds)) &&
+    (filters.account === undefined ||
+      pullRequestMatchesAccount(entry, filters.account, viewer, involvement)) &&
     (filters.author === undefined ||
       entry.author?.login.toLowerCase() ===
         resolvePullRequestAuthorFilter(filters.author, viewer).toLowerCase())
@@ -297,6 +300,7 @@ export function matchesPullRequestFilters(
 export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
   entries: ReadonlyArray<Entry>,
   viewers: PullRequestViewers,
+  account?: string,
 ): ReadonlyArray<PullRequestGroup<Entry>> {
   const buckets: Record<PullRequestGroupKey, Entry[]> = {
     reviewRequested: [],
@@ -304,9 +308,18 @@ export function groupPullRequestsByInvolvement<Entry extends ScopedEntry>(
     others: [],
   };
   for (const entry of entries) {
-    if (isAuthoredByViewer(entry, viewers)) {
+    const viewer = pullRequestEntryViewer(entry, viewers);
+    if (
+      account === undefined
+        ? isAuthoredByViewer(entry, viewers)
+        : pullRequestMatchesAccount(entry, account, viewer, "authored")
+    ) {
       buckets.authored.push(entry);
-    } else if (entry.viewerReviewRequested) {
+    } else if (
+      account === undefined
+        ? entry.viewerReviewRequested
+        : pullRequestMatchesAccount(entry, account, viewer, "reviewing")
+    ) {
       buckets.reviewRequested.push(entry);
     } else {
       buckets.others.push(entry);
@@ -579,6 +592,13 @@ export function mergePullRequestLists(
               projectCount: held.projectCount + provider.projectCount,
               searchesOnHost: held.searchesOnHost && provider.searchesOnHost,
               configured: held.configured || provider.configured,
+              ...(held.viewerLogins || provider.viewerLogins
+                ? {
+                    viewerLogins: [
+                      ...new Set([...(held.viewerLogins ?? []), ...(provider.viewerLogins ?? [])]),
+                    ],
+                  }
+                : {}),
             },
       );
     }

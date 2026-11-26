@@ -335,6 +335,7 @@ function makeService(input: {
       Layer.mergeAll(
         Layer.mock(ServerSettingsService.ServerSettingsService)({
           getSettings: Effect.succeed(input.settings ?? DEFAULT_SERVER_SETTINGS),
+          subscribeChanges: Effect.succeed(Stream.empty),
         }),
         Layer.succeed(
           PullRequestProviderRegistry.PullRequestProviderRegistry,
@@ -2876,6 +2877,7 @@ it.effect("includes both GitHub accounts in Authored and Reviewing for a shared 
                 {
                   ...batchedChangeRequest(1, "org/a", "2026-07-02T00:00:00Z"),
                   author: { login: "SECONDARY", name: null, avatarUrl: null },
+                  reviewRequestLogins: ["primary"],
                 },
                 {
                   ...batchedChangeRequest(2, "org/a", "2026-07-01T00:00:00Z"),
@@ -2897,12 +2899,38 @@ it.effect("includes both GitHub accounts in Authored and Reviewing for a shared 
     const reviewing = yield* service.list({ state: "open", involvement: "reviewing" });
     assert.deepStrictEqual(
       reviewing.entries.map((entry) => entry.number),
-      [2],
+      [1, 2],
     );
     const mine = yield* service.list({ state: "open", filters: { author: "@me" } });
     assert.deepStrictEqual(
       mine.entries.map((entry) => entry.number),
       [1],
+    );
+    for (const [account, numbers] of [
+      ["primary", [1]],
+      ["SECONDARY", [1, 2]],
+    ] as const) {
+      const filtered = yield* service.list({ state: "open", filters: { account } });
+      assert.deepStrictEqual(
+        filtered.entries.map((entry) => entry.number),
+        [...numbers],
+      );
+      assert.deepStrictEqual(filtered.providers[0]?.viewerLogins, ["primary", "secondary"]);
+    }
+    const primaryAuthored = yield* service.list({
+      state: "open",
+      involvement: "authored",
+      filters: { account: "primary" },
+    });
+    assert.deepStrictEqual(primaryAuthored.entries, []);
+    const secondaryReviews = yield* service.list({
+      state: "open",
+      involvement: "reviewing",
+      filters: { account: "secondary" },
+    });
+    assert.deepStrictEqual(
+      secondaryReviews.entries.map((entry) => entry.number),
+      [2],
     );
   }),
 );

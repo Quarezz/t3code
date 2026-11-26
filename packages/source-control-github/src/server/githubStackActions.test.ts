@@ -95,7 +95,7 @@ const runGitHubStackAction = (send: Send, input: Parameters<typeof runStackActio
                     fingerprint: "fp",
                   }),
                 saved: () => Effect.succeedNone,
-                pullRequestAccounts: () => Effect.succeed([]),
+                pullRequestAccounts: () => Effect.succeed({ accounts: [] }),
                 fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
                 invalidate: () => Effect.void,
               }),

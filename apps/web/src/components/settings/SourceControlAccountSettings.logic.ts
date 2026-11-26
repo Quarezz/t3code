@@ -1,5 +1,8 @@
 import type { SourceControlProviderAuth } from "@t3tools/contracts";
-import type { HostCredentialSettings } from "@t3tools/client-runtime/source-control-clients";
+import type {
+  HostAccountChoice,
+  HostCredentialSettings,
+} from "@t3tools/client-runtime/source-control-clients";
 
 export type DiscoveredAccount = NonNullable<SourceControlProviderAuth["accounts"]>[number];
 
@@ -33,12 +36,27 @@ export function groupHostAccounts(
 export function nextHostAccountChoices(
   current: HostCredentialSettings["hosts"],
   host: string,
-  change: { readonly enabled?: boolean; readonly account?: string | null },
+  change: {
+    readonly enabled?: boolean;
+    readonly account?: string | null;
+    readonly pullRequestAccounts?: HostAccountChoice["pullRequestAccounts"] | null;
+  },
 ): HostCredentialSettings["hosts"] {
   const previous = current[host];
   const enabled = change.enabled ?? previous?.enabled ?? true;
   const account = change.account === undefined ? previous?.account : (change.account ?? undefined);
+  const pullRequestAccounts =
+    change.pullRequestAccounts === undefined
+      ? previous?.pullRequestAccounts
+      : (change.pullRequestAccounts ?? undefined);
   const { [host]: _replaced, ...rest } = current;
-  if (enabled && account === undefined) return rest;
-  return { ...rest, [host]: { enabled, ...(account === undefined ? {} : { account }) } };
+  if (enabled && account === undefined && pullRequestAccounts === undefined) return rest;
+  return {
+    ...rest,
+    [host]: {
+      enabled,
+      ...(account === undefined ? {} : { account }),
+      ...(pullRequestAccounts === undefined ? {} : { pullRequestAccounts }),
+    },
+  };
 }

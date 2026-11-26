@@ -234,6 +234,7 @@ export const SourceControlHostName = TrimmedNonEmptyString.pipe(
 
 export const HostAccountChoice = Schema.Struct({
   account: Schema.optionalKey(TrimmedNonEmptyString),
+  pullRequestAccounts: Schema.optionalKey(Schema.NonEmptyArray(TrimmedNonEmptyString)),
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type HostAccountChoice = typeof HostAccountChoice.Type;
