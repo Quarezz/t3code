@@ -1,7 +1,5 @@
 {
-  "5231b47e06049726": "Enter one host/owner=login per line. Repositories without a rule use the default login.",
-  "6344ce9d99279a16": "Pull request accounts",
-  "b152c242b67aec58": "Save pull request accounts",
+  "7ef0646c7c3fa3a3": "У {account} запросили ревью",
   "6c6e16b9488f8b91": "Прокрутите, чтобы прочитать всё.",
   "035aab5e99159bd8": "{count, plural, one {… {hidden} символ в середине не показан.} few {… {hidden} символа в середине не показаны.} many {… {hidden} символов в середине не показаны.} other {… {hidden} символа в середине не показаны.}} Текст заканчивается так:",
   "011b1ef726fa9928": "Прокрутите каждую часть, чтобы прочитать её целиком.",

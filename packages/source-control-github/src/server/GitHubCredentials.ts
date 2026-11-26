@@ -23,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as GitHubClient from "../shared/definition.ts";
+import { parseGitHubAuthStatus, type GitHubAuthStatusAccount } from "./gitHubAuthStatus.ts";
 import { makeGhProcess } from "./gitHubCliProcess.ts";
 
 /**
@@ -112,6 +113,9 @@ export class GitHubCredentials extends Context.Service<
     readonly get: (
       host: string,
     ) => Effect.Effect<GitHubCredential, GitHubCredentialUnavailableError>;
+    readonly pullRequestAccounts: (
+      host: string,
+    ) => Effect.Effect<ReadonlyArray<GitHubAuthStatusAccount>>;
     /** The token saved in Settings for `host`, which outranks every other source. */
     readonly saved: (
       host: string,
@@ -239,6 +243,39 @@ export const make = Effect.gen(function* () {
       Effect.map((token) => token.trim() || null),
     );
 
+  const ghAccounts = yield* Cache.makeWith(
+    (host: string) =>
+      process
+        .run({
+          operation: "GitHubCredentials.pullRequestAccounts",
+          command: "gh",
+          args: ["auth", "status", "--hostname", host, "--json", "hosts"],
+          cwd: workingDirectory,
+          env: {
+            GH_DEBUG: "",
+            GH_PROMPT_DISABLED: "1",
+            GH_TOKEN: "",
+            GITHUB_TOKEN: "",
+            GH_ENTERPRISE_TOKEN: "",
+            GITHUB_ENTERPRISE_TOKEN: "",
+          },
+          timeoutMs: 10_000,
+          concurrency: GH_PROCESS_CONCURRENCY,
+        })
+        .pipe(
+          Effect.map(({ stdout }) =>
+            parseGitHubAuthStatus(stdout).accounts.filter(
+              (account) =>
+                account.host === host &&
+                account.authenticated &&
+                account.environmentVariable === null,
+            ),
+          ),
+          Effect.orElseSucceed(() => []),
+        ),
+    { capacity: 32, timeToLive: () => Duration.seconds(30) },
+  );
+
   const cacheKey = (host: string, account: string | undefined, strict = false) =>
     account === undefined ? host : `${host}\u0000${account}${strict ? "\u0000strict" : ""}`;
 
@@ -295,6 +332,14 @@ export const make = Effect.gen(function* () {
   });
 
   return GitHubCredentials.of({
+    pullRequestAccounts: Effect.fn("GitHubCredentials.pullRequestAccounts")(function* (rawHost) {
+      const host = normalizeHost(rawHost);
+      if (!isGitHubHost(host) || environmentToken(host, environment) !== null) return [];
+      if ((yield* hostChoice(host))?.enabled === false) return [];
+      const saved = yield* savedToken(host).pipe(Effect.option);
+      if (Option.isNone(saved) || saved.value !== null) return [];
+      return yield* Cache.get(ghAccounts, host);
+    }),
     get: Effect.fn("GitHubCredentials.get")(function* (rawHost) {
       const host = normalizeHost(rawHost);
       const selected = yield* PullRequestGitHubAccount;

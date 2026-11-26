@@ -39,6 +39,7 @@ import {
   type PullRequestInvalidateInput,
   type PullRequestReportStateInput,
   type PullRequestListEntry,
+  type PullRequestInvolvement,
   type PullRequestListFilters,
   type PullRequestListInput,
   type PullRequestListProjectError,
@@ -373,6 +374,8 @@ export interface SupportedProject {
 }
 
 const viewerKeyOf = (project: SupportedProject) => project.credentialScope?.key ?? project.host;
+const hasMultipleViewers = (project: SupportedProject) =>
+  (project.credentialScope?.viewerLogins?.length ?? 0) > 1;
 
 interface WorkspaceProjects {
   /** Every project read, with its repository identity resolved. */
@@ -1422,7 +1425,16 @@ export const make = Effect.gen(function* () {
     readonly viewer: string;
     readonly observedAt: number;
   }): PullRequestListEntry => {
-    const viewer = input.viewer.toLowerCase();
+    const viewers = input.project.credentialScope?.viewerLogins ?? [input.viewer];
+    const author = input.item.author?.login.toLowerCase();
+    const authoredBy = viewers.find((login) => login.toLowerCase() === author);
+    const reviewingAs = viewers.find(
+      (login) =>
+        login.toLowerCase() !== author &&
+        input.item.reviewRequestLogins.some(
+          (request) => request.toLowerCase() === login.toLowerCase(),
+        ),
+    );
     return {
       ...(input.item.stack === undefined ? {} : { stack: input.item.stack }),
       provider: input.project.api.kind,
@@ -1451,10 +1463,10 @@ export const make = Effect.gen(function* () {
         ? {}
         : { checksState: input.item.checksState }),
       ...(input.item.visibility === undefined ? {} : { visibility: input.item.visibility }),
-      ...(input.project.credentialScope === undefined ? {} : { viewerLogin: input.viewer }),
-      viewerReviewRequested:
-        input.item.author?.login.toLowerCase() !== viewer &&
-        input.item.reviewRequestLogins.some((login) => login.toLowerCase() === viewer),
+      ...(input.project.credentialScope === undefined
+        ? {}
+        : { viewerLogin: authoredBy ?? reviewingAs ?? input.viewer }),
+      viewerReviewRequested: reviewingAs !== undefined,
       labels: input.item.labels,
       ...(input.item.reviewDecision === undefined || input.item.reviewDecision === null
         ? {}
@@ -1558,6 +1570,34 @@ export const make = Effect.gen(function* () {
     }
 
     const limit = input.limit ?? DEFAULT_REPOSITORY_LIST_LIMIT;
+    const authorIsMe = /^@?me$/i.test(input.filters?.author?.trim() ?? "");
+    const readInvolvement = (project: SupportedProject): PullRequestInvolvement =>
+      hasMultipleViewers(project) ? "all" : involvement;
+    const readFilters = (project: SupportedProject): PullRequestListFilters | undefined => {
+      if (!hasMultipleViewers(project) || !input.filters || !authorIsMe) return input.filters;
+      const { author: _, ...rest } = input.filters;
+      return rest;
+    };
+    const toEntries = (
+      project: SupportedProject,
+      items: ReadonlyArray<ProviderChangeRequest>,
+      viewer: string,
+      observedAt: number,
+    ) =>
+      items.flatMap((item) => {
+        const entry = toEntry({ project, item, viewer, observedAt });
+        const rowViewer = entry.viewerLogin ?? viewer;
+        if (!matchesRowFilters(item, input.filters, rowViewer)) return [];
+        if (hasMultipleViewers(project)) {
+          if (involvement === "reviewing" && !entry.viewerReviewRequested) return [];
+          if (
+            involvement === "authored" &&
+            entry.author?.login.toLowerCase() !== rowViewer.toLowerCase()
+          )
+            return [];
+        }
+        return [entry];
+      });
     const cursorOf = (project: SupportedProject): ListCursor | undefined =>
       continuation?.get(project.cursorKey);
 
@@ -1574,11 +1614,11 @@ export const make = Effect.gen(function* () {
             repository: project.repository,
             host: project.host,
             state: input.state,
-            involvement,
+            involvement: readInvolvement(project),
             viewer,
             limit,
             query: input.query,
-            filters: input.filters,
+            filters: readFilters(project),
             ...(cursor === undefined
               ? {}
               : {
@@ -1606,9 +1646,7 @@ export const make = Effect.gen(function* () {
                     );
               return {
                 key,
-                entries: items
-                  .filter((item) => matchesRowFilters(item, input.filters, viewer))
-                  .map((item) => toEntry({ project, item, viewer, observedAt })),
+                entries: toEntries(project, items, viewer, observedAt),
                 errors: [],
                 truncated: page.truncated,
                 nextCursor:
@@ -1652,7 +1690,7 @@ export const make = Effect.gen(function* () {
       const fill = (batch: RepositoryBatch, reads: number): Effect.Effect<RepositoryBatch> => {
         const cursor = batch.nextCursor === null ? null : parseListCursor(batch.nextCursor);
         if (
-          input.filters === undefined ||
+          (input.filters === undefined && readInvolvement(project) === involvement) ||
           cursor === null ||
           batch.entries.length >= limit ||
           reads >= FILTERED_LIST_READS
@@ -1686,11 +1724,11 @@ export const make = Effect.gen(function* () {
         host: first.host,
         repositories: chunk.map((project) => project.repository),
         state: input.state,
-        involvement,
+        involvement: readInvolvement(first),
         viewer,
         limit,
         query: input.query,
-        filters: input.filters,
+        filters: readFilters(first),
         ...(cursor === undefined
           ? {}
           : {
@@ -1740,9 +1778,7 @@ export const make = Effect.gen(function* () {
                     );
               return Effect.succeed({
                 key: project.cursorKey,
-                entries: items
-                  .filter((item) => matchesRowFilters(item, input.filters, viewer))
-                  .map((item) => toEntry({ project, item, viewer, observedAt })),
+                entries: toEntries(project, items, viewer, observedAt),
                 errors: [],
                 truncated: page.truncated,
                 nextCursor:
@@ -1761,7 +1797,10 @@ export const make = Effect.gen(function* () {
     const together = new Map<string, Array<SupportedProject>>();
     const separate: Array<SupportedProject> = [];
     for (const project of readable) {
-      if (project.api.listChangeRequestsAcross === undefined) {
+      if (
+        project.api.listChangeRequestsAcross === undefined ||
+        (hasMultipleViewers(project) && (involvement !== "all" || authorIsMe))
+      ) {
         separate.push(project);
         continue;
       }

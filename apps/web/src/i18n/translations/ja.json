@@ -1,7 +1,5 @@
 {
-  "5231b47e06049726": "Enter one host/owner=login per line. Repositories without a rule use the default login.",
-  "6344ce9d99279a16": "Pull request accounts",
-  "b152c242b67aec58": "Save pull request accounts",
+  "7ef0646c7c3fa3a3": "{account} にレビューを依頼",
   "6c6e16b9488f8b91": "スクロールしてすべて読んでください。",
   "035aab5e99159bd8": "{count, plural, other {… 途中の {hidden} 文字は表示されていません。}} テキストの末尾:",
   "011b1ef726fa9928": "それぞれの部分をスクロールしてすべて読んでください。",

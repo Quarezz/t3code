@@ -37,7 +37,6 @@ import { m, type MessageResolver } from "../../i18n/messages";
 import { GitIcon, JujutsuIcon, type Icon } from "../Icons";
 import { IssueTrackerSettings } from "./IssueTrackerSettings";
 import { SourceControlHostSettings } from "./SourceControlHostSettings";
-import { GitHubPullRequestAccountSettings } from "./GitHubPullRequestAccountSettings";
 import { SourceControlAccountSettings } from "./SourceControlAccountSettings";
 import { SourceControlAppSignInSettings } from "./SourceControlAppSignInSettings";
 import { SourceControlTokenSettings } from "./SourceControlTokenSettings";
@@ -542,14 +541,6 @@ export function SourceControlSettingsPanel() {
                 definition={definition}
                 credentials={credentials}
                 auth={item.auth}
-                onSaved={handleScan}
-              />
-            ) : null}
-            {item.kind === "github" && item.status === "available" ? (
-              <GitHubPullRequestAccountSettings
-                key={environmentId}
-                environmentId={environmentId}
-                settings={definition.settings}
                 onSaved={handleScan}
               />
             ) : null}

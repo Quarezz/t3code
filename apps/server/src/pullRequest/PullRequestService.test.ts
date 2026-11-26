@@ -2857,6 +2857,56 @@ it.effect("lists authored PRs from two separately signed-in accounts on the same
   }),
 );
 
+it.effect("includes both GitHub accounts in Authored and Reviewing for a shared repository", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "Shared", workspaceRoot: "/a", repository: "org/a" })],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          repositoryCredentialScope: () =>
+            Effect.succeed({
+              key: "primary",
+              viewerLogins: ["primary", "secondary"],
+              provide: (effect) => effect,
+            }),
+          getViewer: () => Effect.succeed("primary"),
+          listChangeRequests: ({ involvement, filters }) =>
+            Effect.succeed({
+              items: [
+                {
+                  ...batchedChangeRequest(1, "org/a", "2026-07-02T00:00:00Z"),
+                  author: { login: "SECONDARY", name: null, avatarUrl: null },
+                },
+                {
+                  ...batchedChangeRequest(2, "org/a", "2026-07-01T00:00:00Z"),
+                  author: { login: "other", name: null, avatarUrl: null },
+                  reviewRequestLogins: ["secondary"],
+                },
+              ].filter(() => involvement === "all" && filters?.author === undefined),
+              truncated: false,
+              continues: false,
+            }),
+        }),
+      ],
+    });
+    const authored = yield* service.list({ state: "open", involvement: "authored" });
+    assert.deepStrictEqual(
+      authored.entries.map((entry) => entry.number),
+      [1],
+    );
+    const reviewing = yield* service.list({ state: "open", involvement: "reviewing" });
+    assert.deepStrictEqual(
+      reviewing.entries.map((entry) => entry.number),
+      [2],
+    );
+    const mine = yield* service.list({ state: "open", filters: { author: "@me" } });
+    assert.deepStrictEqual(
+      mine.entries.map((entry) => entry.number),
+      [1],
+    );
+  }),
+);
+
 it.effect("a listing narrowed to some projects is its own cache entry", () =>
   Effect.gen(function* () {
     const asked: ReadonlyArray<string>[] = [];

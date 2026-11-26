@@ -1,7 +1,5 @@
 import { isCommitSha, normalizeHost } from "@t3tools/source-control-core/server/pullRequestUtils";
 import type { PullRequestCredentialScope } from "@t3tools/source-control-core/server/PullRequestProvider";
-import { readSourceControlHostSettings } from "@t3tools/source-control-core/shared/definition";
-import { definition, pullRequestAccount, settings } from "../shared/definition.ts";
 import {
   diffFileSection,
   truncateLongDiffLines,
@@ -53,7 +51,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as GitHubAppAccess from "./GitHubAppAccess.ts";
-import { PullRequestGitHubAccount } from "./GitHubCredentials.ts";
+import { GitHubCredentials, PullRequestGitHubAccount } from "./GitHubCredentials.ts";
 import * as GitHubRest from "./GitHubRest.ts";
 import * as GitHubPullRequestEvents from "./gitHubPullRequestEvents.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
@@ -1086,6 +1084,7 @@ export const make = Effect.gen(function* () {
   const api = yield* GitHubRest.GitHubRest;
   const appAccess = yield* GitHubAppAccess.GitHubAppAccess;
   const policy = yield* GitHubRequestPolicy.GitHubRequestPolicy;
+  const credentials = yield* GitHubCredentials;
   const httpClient = yield* HttpClient.HttpClient;
   const sourceControlHost = yield* SourceControlHost.SourceControlHost;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -1375,6 +1374,84 @@ export const make = Effect.gen(function* () {
           decodeWith(input.cwd, input.operation, input.decode, response.body),
         ),
       );
+
+  const repositoryPermissions = Schema.decodeUnknownOption(
+    Schema.fromJsonString(
+      Schema.Struct({
+        permissions: Schema.optionalKey(
+          Schema.Struct({
+            push: Schema.optionalKey(Schema.Boolean),
+            triage: Schema.optionalKey(Schema.Boolean),
+          }),
+        ),
+      }),
+    ),
+  );
+  const accountScope = (host: string, account: string) => {
+    const key = JSON.stringify([host, account.toLowerCase()]);
+    return {
+      key,
+      provide: <A, E, R>(operation: Effect.Effect<A, E, R>) =>
+        operation.pipe(
+          Effect.provideService(PullRequestGitHubAccount, { host, account }),
+          Effect.provideService(SourceControlRateLimit.CredentialScope, key),
+        ),
+    };
+  };
+  const repositoryAccounts = yield* Cache.makeWith(
+    Effect.fnUntraced(function* (key: string) {
+      const [host = "", repository = ""] = key.split("\0");
+      const accounts = yield* credentials.pullRequestAccounts(host);
+      if (accounts.length === 0 || (accounts.length === 1 && accounts[0]?.active)) return undefined;
+      const { owner, name } = parseRepositorySelector(repository);
+      if (!owner || !name) return undefined;
+      const readable = yield* Effect.forEach(
+        accounts,
+        (account) =>
+          accountScope(host, account.account)
+            .provide(
+              api
+                .rest({
+                  host,
+                  operation: "resolvePullRequestAccount",
+                  path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+                })
+                .pipe(Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, null)),
+            )
+            .pipe(
+              Effect.map(({ body }) => {
+                const response = Option.getOrUndefined(repositoryPermissions(body));
+                const rank = response?.permissions?.push
+                  ? 3
+                  : response?.permissions?.triage
+                    ? 2
+                    : 1;
+                return { ...account, rank };
+              }),
+              Effect.option,
+            ),
+        { concurrency: 2 },
+      );
+      const choices = readable
+        .filter(Option.isSome)
+        .map((result) => result.value)
+        .sort(
+          (a, b) =>
+            b.rank - a.rank ||
+            Number(b.account.toLowerCase() === owner) - Number(a.account.toLowerCase() === owner) ||
+            Number(b.active) - Number(a.active) ||
+            a.account.localeCompare(b.account),
+        );
+      const account = choices[0]?.account;
+      return account === undefined
+        ? undefined
+        : ({
+            ...accountScope(host, account),
+            viewerLogins: choices.map((choice) => choice.account),
+          } satisfies PullRequestCredentialScope);
+    }),
+    { capacity: 512, timeToLive: () => Duration.seconds(30) },
+  );
 
   // The last ETag and body of each polled REST read, so an unchanged answer comes back as a
   // 304, which GitHub does not charge. Keyed by the credential the request is pinned to, so a
@@ -1982,28 +2059,8 @@ export const make = Effect.gen(function* () {
 
   return GitHubPullRequestApi.of({
     repositoryCredentialScope: Effect.fn("GitHubPullRequestApi.repositoryCredentialScope")(
-      function ({ host, repository }) {
-        return sourceControlHost.settings.get.pipe(
-          Effect.map((serverSettings): PullRequestCredentialScope | undefined => {
-            const rules = readSourceControlHostSettings(
-              settings,
-              serverSettings.sourceControlHosts[definition.kind],
-            ).pullRequestAccounts;
-            const account = pullRequestAccount(rules, host, repository);
-            if (account === undefined) return undefined;
-            const key = JSON.stringify([host, account.toLowerCase()]);
-            return {
-              key,
-              provide: (operation) =>
-                operation.pipe(
-                  Effect.provideService(PullRequestGitHubAccount, { host, account }),
-                  Effect.provideService(SourceControlRateLimit.CredentialScope, key),
-                ),
-            };
-          }),
-          Effect.orElseSucceed(() => undefined),
-        );
-      },
+      ({ host, repository }) =>
+        Cache.get(repositoryAccounts, `${normalizeHost(host)}\0${repository.toLowerCase()}`),
     ),
     withVerifiedCredential,
     revalidateChecks,

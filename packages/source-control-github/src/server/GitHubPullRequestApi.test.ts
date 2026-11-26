@@ -129,6 +129,9 @@ const mockedCredential =
       host: string,
     ) => Effect.Effect<GitHubRequestPolicy.GitHubHeldCredential, GitHubRequestPolicy.GitHubApiError>
   >(defaultCredential);
+const mockedAccounts = vi.fn<GitHubCredentials.GitHubCredentials["Service"]["pullRequestAccounts"]>(
+  () => Effect.succeed([]),
+);
 const mockedStackMemberships = vi.fn<(call: ApiCall) => ApiAnswer>(() =>
   Effect.succeed(output('{"data":{}}')),
 );
@@ -215,6 +218,7 @@ const layer = it.layer(
             Effect.mapError(() => new GitHubCredentials.GitHubCliMissingError({ host })),
           ),
         saved: () => Effect.succeedNone,
+        pullRequestAccounts: (host) => mockedAccounts(host),
         fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
         invalidate: () => Effect.void,
       }),
@@ -651,6 +655,7 @@ afterEach(() => {
   mockedExecute.mockReset();
   mockedStackMemberships.mockReset();
   mockedCredential.mockReset();
+  mockedAccounts.mockReset();
   mockedAppToken.mockReset();
   mockedCredential.mockImplementation(defaultCredential);
 });
@@ -673,6 +678,7 @@ it.effect(
               fingerprint: `${host}:${activeToken.length}${activeToken.at(-1)}`,
             })),
           saved: () => Effect.succeedNone,
+          pullRequestAccounts: () => Effect.succeed([]),
           fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
           invalidate: () => Effect.void,
         }),
@@ -746,6 +752,54 @@ it.effect(
 );
 
 layer("GitHubPullRequestApi.layer", (it) => {
+  it.effect(
+    "uses each repository's accessible GitHub accounts without switching the CLI login",
+    () =>
+      Effect.gen(function* () {
+        const host = "github.com";
+        mockedAccounts.mockReturnValue(
+          Effect.succeed(
+            ["personal", "work"].map((account) => ({
+              host,
+              account,
+              active: account === "personal",
+              authenticated: true,
+              error: null,
+              environmentVariable: null,
+            })),
+          ),
+        );
+        mockedExecute.mockImplementation((call) =>
+          Effect.gen(function* () {
+            const account = (yield* GitHubCredentials.PullRequestGitHubAccount)?.account;
+            if (call.kind !== "rest" || account === undefined) {
+              return yield* Effect.die(new Error("Expected an account-specific access probe"));
+            }
+            if (call.path.endsWith("/private") && account !== "work") {
+              return yield* new GitHubRequestPolicy.GitHubApiResponseError({
+                host,
+                operation: call.operation,
+                status: 404,
+              });
+            }
+            return output(encodeJson({ permissions: { push: account === "work" } }));
+          }),
+        );
+        const api = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+        const scope = api.repositoryCredentialScope!;
+        const privateRepo = yield* scope({ host, repository: "org/private" });
+        const sharedRepo = yield* scope({ host, repository: "org/shared" });
+        expect(privateRepo?.viewerLogins).toEqual(["work"]);
+        expect(sharedRepo?.viewerLogins).toEqual(["work", "personal"]);
+        expect(
+          yield* (
+            sharedRepo?.provide(GitHubCredentials.PullRequestGitHubAccount) ?? Effect.succeed(null)
+          ),
+        ).toEqual({ host, account: "work" });
+        expect(yield* GitHubCredentials.PullRequestGitHubAccount).toBeNull();
+      }),
+  );
+
   it.effect("keeps recent references when the typed number does not exist", () =>
     Effect.gen(function* () {
       const search = {

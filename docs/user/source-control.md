@@ -19,12 +19,11 @@ Install Git and authenticate on the machine running your T3 Code server (for rem
 
 > Note: Git `push` and `clone` still require Git SSH/HTTPS credentials on the server, separate from API tokens.
 
-To browse pull requests from repositories that use different GitHub accounts, sign in to both with
-`gh` on the server. In the GitHub source-control settings, enter one `host/owner=login` rule per line
-under **Pull request accounts**. For example, `github.com/example-org=work-login` selects that
-login for the organization's repositories. **Authored** uses the selected login for each repository.
-Delete a rule to go back to the host's default credential. If the selected login is signed out, its
-repositories show an error rather than using a different account.
+To browse pull requests from projects tied to different GitHub accounts, sign in to each account
+with `gh` on the server. Open **Pull requests**. T3 Code finds the signed-in accounts and checks
+which repositories each can access. **Authored** and **Reviewing** include matches for all those
+accounts, with no account picker or routing rules. A token saved in Settings or configured in the
+server environment still takes precedence.
 
 > Note: With several `gt` servers and no `fj` login, `owner/repo` and newly published repositories go to `gt`'s default server (`gt config set default_host https://your-server`). With several `gt` accounts on one server, pick one with `gt auth switch <user> --host https://your-server`. If an SSH remote uses a different host name than the server's web address, run `gt config set ssh_host <ssh-host> --host https://your-server`.
 

@@ -353,6 +353,7 @@ export interface ProviderRepositoryRef {
 
 export interface PullRequestCredentialScope {
   readonly key: string;
+  readonly viewerLogins?: ReadonlyArray<string>;
   readonly provide: <A, E, R>(operation: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
 }
 

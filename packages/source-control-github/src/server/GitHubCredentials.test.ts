@@ -33,11 +33,32 @@ function harness(
   hosts: Record<string, { readonly account?: string; readonly enabled?: boolean }> = {},
   signedOut: ReadonlyArray<string> = [],
   tokens: Record<string, string> = {},
+  ghAccounts: ReadonlyArray<{
+    readonly login: string;
+    readonly active: boolean;
+    readonly state: string;
+  }> = [],
 ) {
   const calls: Array<ReadonlyArray<string>> = [];
   const run: SourceControlHost.SourceControlHost["Service"]["process"]["run"] = (input) =>
     Effect.sync(() => {
       calls.push(input.args);
+      if (input.args[1] === "status") {
+        return {
+          exitCode: ChildProcessSpawner.ExitCode(0),
+          stdout: JSON.stringify({
+            hosts: {
+              "github.com": ghAccounts.map((account) => ({ ...account, host: "github.com" })),
+              "other.example": [
+                { login: "other", host: "other.example", active: true, state: "success" },
+              ],
+            },
+          }),
+          stderr: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        };
+      }
       const user = input.args[input.args.indexOf("--user") + 1];
       if (input.args.includes("--user") && user !== undefined && signedOut.includes(user)) {
         return {
@@ -99,6 +120,21 @@ describe("GitHubCredentials", () => {
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it.effect("discovers the signed-in CLI accounts for this host, excluding expired logins", () => {
+    const { layer, calls } = harness({}, [], {}, [
+      { login: "personal", active: true, state: "success" },
+      { login: "work", active: false, state: "success" },
+      { login: "expired", active: false, state: "error" },
+    ]);
+    return Effect.gen(function* () {
+      const credentials = yield* GitHubCredentials.GitHubCredentials;
+      const accounts = yield* credentials.pullRequestAccounts("github.com");
+      expect(accounts.map(({ account }) => account)).toEqual(["personal", "work"]);
+      expect(yield* credentials.pullRequestAccounts("github.com")).toEqual(accounts);
+      expect(calls).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
   });
 
   it.effect("uses the requested PR login and never falls back to a different account", () => {
