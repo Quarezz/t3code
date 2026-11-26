@@ -22,6 +22,7 @@ export function pullRequestViewMatches(
       controls.filters.review,
       controls.filters.checks,
       controls.filters.author,
+      controls.filters.account,
       controls.filters.labels
         ?.map((group) => [...group].sort())
         .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),

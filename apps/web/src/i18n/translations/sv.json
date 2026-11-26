@@ -1,4 +1,10 @@
 {
+  "7ec27b93651bc46a": "GitHub-konto",
+  "a79e362e42d1ae09": "Alla konton",
+  "a7dc48fe322fc166": "Välj vilka inloggade konton som ska ingå i pull requests.",
+  "21672c06e02e6407": "Inget av de valda kontona är inloggat.",
+  "1dd1fac5db4e79e9": "Använd alla inloggade konton",
+  "7ef0646c7c3fa3a3": "Granskning har begärts från {account}",
   "6c6e16b9488f8b91": "Scrolla för att läsa allt.",
   "035aab5e99159bd8": "{count, plural, one {… {hidden} tecken i mitten visas inte.} other {… {hidden} tecken i mitten visas inte.}} Texten slutar med:",
   "011b1ef726fa9928": "Scrolla i varje del för att läsa allt.",

@@ -1,7 +1,7 @@
 import type { PullRequestAction } from "@t3tools/contracts";
 import { contextMenuSourceOf } from "../../contextMenuSource";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
-import { T } from "gt-react";
+import { T, useGT } from "gt-react";
 import { SearchIcon } from "lucide-react";
 import { PullRequestChangeBreakdownStat } from "./PullRequestChangeBreakdownStat";
 import { PullRequestStackPopover } from "./PullRequestStackPopover";
@@ -107,7 +107,9 @@ function PullRequestRowImpl({
   sweeping?: boolean;
   onCloseSweepStart?: (entry: EnvironmentPullRequestEntry, event: PointerEvent) => void;
 }) {
+  const gt = useGT();
   const { Icon, providerName, terminology } = getSourceControlPresentationForKind(entry.provider);
+  const reviewAccount = entry.viewerReviewRequested ? entry.viewerLogin : undefined;
   return (
     <div
       ref={statsRef}
@@ -249,6 +251,15 @@ function PullRequestRowImpl({
                 className="min-w-3.5 max-w-40"
                 labelClassName="sr-only @xs/pr-row-meta:not-sr-only @xs/pr-row-meta:truncate"
               />
+              {reviewAccount &&
+              reviewAccount.toLowerCase() !== entry.author?.login.toLowerCase() ? (
+                <SharedTooltipTrigger
+                  render={<span className="min-w-0 max-w-32 truncate" />}
+                  label={gt("Review requested for {account}", { account: reviewAccount })}
+                >
+                  @{reviewAccount}
+                </SharedTooltipTrigger>
+              ) : null}
               {showProjectTitle ? <span className="truncate">{entry.repository}</span> : null}
               {environmentLabel ? (
                 <span className="min-w-0 max-w-32 truncate">{environmentLabel}</span>

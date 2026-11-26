@@ -1,4 +1,10 @@
 {
+  "7ec27b93651bc46a": "GitHub-Konto",
+  "a79e362e42d1ae09": "Alle Konten",
+  "a7dc48fe322fc166": "Wähle, welche angemeldeten Konten in Pull Requests einbezogen werden.",
+  "21672c06e02e6407": "Keines der ausgewählten Konten ist angemeldet.",
+  "1dd1fac5db4e79e9": "Alle angemeldeten Konten verwenden",
+  "7ef0646c7c3fa3a3": "Überprüfung für {account} angefordert",
   "6c6e16b9488f8b91": "Scrolle, um alles zu lesen.",
   "035aab5e99159bd8": "{count, plural, one {… {hidden} Zeichen in der Mitte wird nicht angezeigt.} other {… {hidden} Zeichen in der Mitte werden nicht angezeigt.}} Der Text endet mit:",
   "011b1ef726fa9928": "Scrolle in beiden Teilen, um alles zu lesen.",

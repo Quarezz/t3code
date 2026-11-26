@@ -46,6 +46,7 @@ export const PullRequestListFilters = Schema.Struct({
   labels: Schema.optional(Schema.Array(PullRequestQualifierValues).check(Schema.isMaxLength(10))),
   excludedLabels: Schema.optional(PullRequestQualifierValues),
   author: Schema.optional(PullRequestQualifierValue),
+  account: Schema.optional(PullRequestQualifierValue),
 });
 export type PullRequestListFilters = typeof PullRequestListFilters.Type;
 
@@ -387,6 +388,8 @@ export const PullRequestListEntry = Schema.Struct({
   updatedAt: IsoDateTime,
   observedAt: Schema.optional(Schema.Finite),
   viewerReviewRequested: Schema.Boolean,
+  viewerLogin: Schema.optionalKey(TrimmedNonEmptyString),
+  viewerLogins: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   labels: Schema.Array(PullRequestLabel),
   reviewDecision: Schema.optional(PullRequestReviewDecision),
   checksState: Schema.optional(PullRequestChecksState),
@@ -394,6 +397,26 @@ export const PullRequestListEntry = Schema.Struct({
   visibility: Schema.optional(PullRequestVisibility),
 });
 export type PullRequestListEntry = typeof PullRequestListEntry.Type;
+
+export function pullRequestMatchesAccount(
+  entry: Pick<
+    PullRequestListEntry,
+    "provider" | "author" | "viewerLogin" | "viewerLogins" | "viewerReviewRequested"
+  >,
+  account: string,
+  viewer?: string | null,
+  involvement: PullRequestInvolvement = "all",
+): boolean {
+  if (entry.provider !== "github") return false;
+  const login = account.toLowerCase();
+  const isAuthor = entry.author?.login.toLowerCase() === login;
+  if (involvement === "authored" && !isAuthor) return false;
+  if (involvement === "reviewing" && (isAuthor || !entry.viewerReviewRequested)) return false;
+  return (
+    (entry.viewerLogin ?? viewer)?.toLowerCase() === login ||
+    (entry.viewerLogins?.some((candidate) => candidate.toLowerCase() === login) ?? false)
+  );
+}
 
 export const PullRequestListCursors = Schema.Record(
   TrimmedNonEmptyString,
@@ -427,9 +450,22 @@ export const PullRequestProviderSummary = Schema.Struct({
   /** SSH checkouts can resolve to an HTTP authority different from their stored identity. */
   projectIds: Schema.optional(Schema.Array(ProjectId)),
   configured: Schema.Boolean,
+  viewerLogins: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   detail: Schema.NullOr(TrimmedNonEmptyString),
 });
 export type PullRequestProviderSummary = typeof PullRequestProviderSummary.Type;
+
+export function pullRequestAccountChoices(providers: ReadonlyArray<PullRequestProviderSummary>) {
+  return [
+    ...new Map(
+      providers.flatMap(({ kind, viewerLogins }) =>
+        kind === "github"
+          ? (viewerLogins ?? []).map((login) => [login.toLowerCase(), login] as const)
+          : [],
+      ),
+    ).values(),
+  ].sort((a, b) => a.localeCompare(b));
+}
 
 export const PullRequestListProjectError = Schema.Struct({
   projectId: ProjectId,

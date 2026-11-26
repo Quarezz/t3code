@@ -4,6 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as KeyValueStore from "effect/persistence/KeyValueStore";
 import { assert, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -334,6 +335,7 @@ function makeService(input: {
       Layer.mergeAll(
         Layer.mock(ServerSettingsService.ServerSettingsService)({
           getSettings: Effect.succeed(input.settings ?? DEFAULT_SERVER_SETTINGS),
+          subscribeChanges: Effect.succeed(Stream.empty),
         }),
         Layer.succeed(
           PullRequestProviderRegistry.PullRequestProviderRegistry,
@@ -2801,6 +2803,135 @@ it.effect("shares one cold viewer lookup across distinct concurrent lists", () =
 
     assert.strictEqual(viewerCalls, 1);
     assert.strictEqual(listCalls, 3);
+  }),
+);
+
+it.effect("lists authored PRs from two separately signed-in accounts on the same host", () =>
+  Effect.gen(function* () {
+    const login = Context.Reference("PullRequestService.test.account", {
+      defaultValue: () => "default",
+    });
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "personal", workspaceRoot: "/a", repository: "personal/a" }),
+        project({ id: "p2", title: "work", workspaceRoot: "/b", repository: "work/b" }),
+      ],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          repositoryCredentialScope: ({ repository }) => {
+            const key = repository.startsWith("personal/") ? "personal" : "work";
+            return Effect.succeed({
+              key,
+              provide: (effect) => Effect.provideService(effect, login, key),
+            });
+          },
+          getViewer: () => login,
+          listChangeRequestsAcross: ({ repositories, viewer }) =>
+            login.pipe(
+              Effect.map((account) => {
+                assert.strictEqual(viewer, account);
+                assert.isTrue(
+                  repositories.every((repository) => repository.startsWith(`${account}/`)),
+                );
+                return {
+                  items: repositories.map((repository) => ({
+                    ...batchedChangeRequest(1, repository, "2026-07-02T00:00:00Z"),
+                    author: { login: account, name: null, avatarUrl: null },
+                  })),
+                  truncated: false,
+                };
+              }),
+            ),
+        }),
+      ],
+    });
+    const authored = yield* service.list({ state: "open", involvement: "authored" });
+    assert.deepStrictEqual(
+      authored.entries.map((entry) => [entry.repository, entry.viewerLogin]).toSorted(),
+      [
+        ["personal/a", "personal"],
+        ["work/b", "work"],
+      ],
+    );
+    assert.lengthOf(authored.providers, 1);
+    assert.isTrue(authored.providers[0]?.configured);
+  }),
+);
+
+it.effect("includes both GitHub accounts in Authored and Reviewing for a shared repository", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "Shared", workspaceRoot: "/a", repository: "org/a" })],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          repositoryCredentialScope: () =>
+            Effect.succeed({
+              key: "primary",
+              viewerLogins: ["primary", "secondary"],
+              provide: (effect) => effect,
+            }),
+          getViewer: () => Effect.succeed("primary"),
+          listChangeRequests: ({ involvement, filters }) =>
+            Effect.succeed({
+              items: [
+                {
+                  ...batchedChangeRequest(1, "org/a", "2026-07-02T00:00:00Z"),
+                  author: { login: "SECONDARY", name: null, avatarUrl: null },
+                  reviewRequestLogins: ["primary"],
+                },
+                {
+                  ...batchedChangeRequest(2, "org/a", "2026-07-01T00:00:00Z"),
+                  author: { login: "other", name: null, avatarUrl: null },
+                  reviewRequestLogins: ["secondary"],
+                },
+              ].filter(() => involvement === "all" && filters?.author === undefined),
+              truncated: false,
+              continues: false,
+            }),
+        }),
+      ],
+    });
+    const authored = yield* service.list({ state: "open", involvement: "authored" });
+    assert.deepStrictEqual(
+      authored.entries.map((entry) => entry.number),
+      [1],
+    );
+    const reviewing = yield* service.list({ state: "open", involvement: "reviewing" });
+    assert.deepStrictEqual(
+      reviewing.entries.map((entry) => entry.number),
+      [1, 2],
+    );
+    const mine = yield* service.list({ state: "open", filters: { author: "@me" } });
+    assert.deepStrictEqual(
+      mine.entries.map((entry) => entry.number),
+      [1],
+    );
+    for (const [account, numbers] of [
+      ["primary", [1]],
+      ["SECONDARY", [1, 2]],
+    ] as const) {
+      const filtered = yield* service.list({ state: "open", filters: { account } });
+      assert.deepStrictEqual(
+        filtered.entries.map((entry) => entry.number),
+        [...numbers],
+      );
+      assert.deepStrictEqual(filtered.providers[0]?.viewerLogins, ["primary", "secondary"]);
+    }
+    const primaryAuthored = yield* service.list({
+      state: "open",
+      involvement: "authored",
+      filters: { account: "primary" },
+    });
+    assert.deepStrictEqual(primaryAuthored.entries, []);
+    const secondaryReviews = yield* service.list({
+      state: "open",
+      involvement: "reviewing",
+      filters: { account: "secondary" },
+    });
+    assert.deepStrictEqual(
+      secondaryReviews.entries.map((entry) => entry.number),
+      [2],
+    );
   }),
 );
 

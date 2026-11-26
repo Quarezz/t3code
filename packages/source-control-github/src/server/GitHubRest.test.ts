@@ -61,6 +61,7 @@ function harness(respond: (request: HttpClientRequest.HttpClientRequest) => Resp
           };
         }),
       saved: () => Effect.succeedNone,
+      pullRequestAccounts: () => Effect.succeed({ accounts: [] }),
       fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
       invalidate: () =>
         Effect.sync(() => {

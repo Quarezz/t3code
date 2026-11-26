@@ -657,6 +657,21 @@ describe('who "I" am, per server', () => {
       ),
     ).toEqual([1]);
   });
+
+  it("groups PRs from two accounts on the same host as authored", () => {
+    const merged = mergePullRequestLists([
+      [
+        ENV_1,
+        answer({ "github.com": "Octocat" }, [
+          entry({ number: 1, viewerLogin: "Bilal", author: byBilal }),
+          entry({ number: 2, viewerLogin: "Octocat", author: { ...byBilal, login: "Octocat" } }),
+          entry({ number: 3, viewerLogin: "Octocat", author: byBilal }),
+        ]),
+      ],
+    ])!;
+    const authored = filterPullRequestsByInvolvement(merged.entries, merged.viewers, "authored");
+    expect(authored.map((row) => row.number).toSorted()).toEqual([1, 2]);
+  });
 });
 
 describe("the project an id names", () => {

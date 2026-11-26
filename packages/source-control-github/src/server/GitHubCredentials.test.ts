@@ -22,22 +22,47 @@ const TOKEN_VARIABLES = [
 
 const ENTERPRISE_TOKEN_VARIABLES = ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"] as const;
 
-const hostSettings = (
-  hosts: Record<string, { readonly account?: string; readonly enabled?: boolean }>,
-) =>
+type HostChoice = {
+  readonly account?: string;
+  readonly enabled?: boolean;
+  readonly pullRequestAccounts?: readonly [string, ...string[]];
+};
+
+const hostSettings = (hosts: Record<string, HostChoice>) =>
   Object.fromEntries(
     Object.entries(hosts).map(([host, choice]) => [host, { enabled: true, ...choice }]),
   );
 
 function harness(
-  hosts: Record<string, { readonly account?: string; readonly enabled?: boolean }> = {},
+  hosts: Record<string, HostChoice> = {},
   signedOut: ReadonlyArray<string> = [],
   tokens: Record<string, string> = {},
+  ghAccounts: ReadonlyArray<{
+    readonly login: string;
+    readonly active: boolean;
+    readonly state: string;
+  }> = [],
 ) {
   const calls: Array<ReadonlyArray<string>> = [];
   const run: SourceControlHost.SourceControlHost["Service"]["process"]["run"] = (input) =>
     Effect.sync(() => {
       calls.push(input.args);
+      if (input.args[1] === "status") {
+        return {
+          exitCode: ChildProcessSpawner.ExitCode(0),
+          stdout: JSON.stringify({
+            hosts: {
+              "github.com": ghAccounts.map((account) => ({ ...account, host: "github.com" })),
+              "other.example": [
+                { login: "other", host: "other.example", active: true, state: "success" },
+              ],
+            },
+          }),
+          stderr: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        };
+      }
       const user = input.args[input.args.indexOf("--user") + 1];
       if (input.args.includes("--user") && user !== undefined && signedOut.includes(user)) {
         return {
@@ -99,6 +124,75 @@ describe("GitHubCredentials", () => {
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it.effect("discovers the signed-in CLI accounts for this host, excluding expired logins", () => {
+    const { layer, calls } = harness({}, [], {}, [
+      { login: "personal", active: true, state: "success" },
+      { login: "work", active: false, state: "success" },
+      { login: "expired", active: false, state: "error" },
+    ]);
+    return Effect.gen(function* () {
+      const credentials = yield* GitHubCredentials.GitHubCredentials;
+      const accounts = yield* credentials.pullRequestAccounts("github.com");
+      expect(accounts.accounts.map(({ account }) => account)).toEqual(["personal", "work"]);
+      expect(yield* credentials.pullRequestAccounts("github.com")).toEqual(accounts);
+      expect(calls).toHaveLength(1);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect(
+    "keeps multiple selected PR accounts and excludes the active login if unchecked",
+    () => {
+      const { layer } = harness(
+        { "github.com": { pullRequestAccounts: ["Work", "project"] } },
+        [],
+        {},
+        [
+          { login: "personal", active: true, state: "success" },
+          { login: "work", active: false, state: "success" },
+          { login: "project", active: false, state: "success" },
+        ],
+      );
+      return Effect.gen(function* () {
+        const credentials = yield* GitHubCredentials.GitHubCredentials;
+        const selection = yield* credentials.pullRequestAccounts("github.com");
+        expect(selection.accounts.map(({ account }) => account)).toEqual(["work", "project"]);
+        expect(selection.restrictedTo).toBe("work");
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.effect("uses the requested PR login and never falls back to a different account", () => {
+    vi.stubEnv("GH_TOKEN", "from-env");
+    const { layer, calls } = harness({}, ["signed-out"], { "github.com": "saved-token" });
+    return Effect.gen(function* () {
+      const credentials = yield* GitHubCredentials.GitHubCredentials;
+      const forAccount = (account: string) =>
+        credentials.get("github.com").pipe(
+          Effect.provideService(GitHubCredentials.PullRequestGitHubAccount, {
+            host: "github.com",
+            account,
+          }),
+        );
+      const [first, second] = yield* Effect.all([forAccount("first"), forAccount("second")], {
+        concurrency: "unbounded",
+      });
+      expect(Redacted.value(first.token)).toBe("token-for-first");
+      expect(Redacted.value(second.token)).toBe("token-for-second");
+      expect(first.fingerprint).not.toBe(second.fingerprint);
+      const result = yield* Effect.result(forAccount("signed-out"));
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "GitHubNotSignedInError", account: "signed-out" },
+      });
+      expect(Redacted.value((yield* credentials.get("github.com")).token)).toBe("saved-token");
+      expect(calls.map((args) => args.at(-1)).toSorted()).toEqual([
+        "first",
+        "second",
+        "signed-out",
+      ]);
+    }).pipe(Effect.provide(layer));
   });
 
   it.effect("lets an environment token win over a pinned account, as gh does", () => {

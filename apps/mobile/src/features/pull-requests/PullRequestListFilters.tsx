@@ -131,6 +131,7 @@ export function usePullRequestListFilters(props: {
   readonly value: PullRequestListControls;
   readonly onChange: (value: PullRequestListControls) => void;
   readonly authors: readonly string[];
+  readonly accounts: readonly string[];
   readonly labels: readonly string[];
   /** Dot colors by lowercased label name, for the labels that have one. */
   readonly labelColors: Readonly<Record<string, string>>;
@@ -144,6 +145,7 @@ export function usePullRequestListFilters(props: {
   const selectedLabels = value.filters.labels?.flat() ?? [];
   const selectedLabelSet = new Set(selectedLabels);
   const author = value.filters.author;
+  const account = value.filters.account;
   const select = (event: string) => {
     let selection: unknown;
     try {
@@ -209,6 +211,9 @@ export function usePullRequestListFilters(props: {
       case "author":
         props.onChange({ ...value, filters: { ...value.filters, author: next || undefined } });
         break;
+      case "account":
+        props.onChange({ ...value, filters: { ...value.filters, account: next || undefined } });
+        break;
       case "search":
         if (next === "labels" || next === "authors") props.onSearch(next);
         break;
@@ -248,12 +253,32 @@ export function usePullRequestListFilters(props: {
     Number(value.state !== "open") +
     Number(value.involvement !== "all") +
     Number(Boolean(author)) +
+    Number(Boolean(account)) +
     selectedLabels.length +
     Number(Boolean(value.filters.draft)) +
     Number(Boolean(value.filters.review)) +
     Number(Boolean(value.filters.checks)) +
     Number(Boolean(value.projectId));
   const more: MenuProps["actions"] = [
+    ...(props.accounts.length > 0 || account
+      ? [
+          {
+            id: "account",
+            title: account ?? m(msg("GitHub account")),
+            subactions: choices(
+              "account",
+              Object.fromEntries([
+                ["", m(msg("All accounts"))],
+                ...[...new Set([...props.accounts, ...(account ? [account] : [])])].map((login) => [
+                  login,
+                  login,
+                ]),
+              ]),
+              account ?? "",
+            ),
+          },
+        ]
+      : []),
     {
       id: "drafts",
       title: value.filters.draft

@@ -36,6 +36,7 @@ it.effect("keeps branch deletion on the credential that passed source repository
             fingerprint: `${host}:${activeToken}`,
           })),
         saved: () => Effect.succeedNone,
+        pullRequestAccounts: () => Effect.succeed({ accounts: [] }),
         fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
         invalidate: () => Effect.void,
       }),

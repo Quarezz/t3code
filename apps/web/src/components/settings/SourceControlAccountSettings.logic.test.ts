@@ -40,6 +40,21 @@ describe("groupHostAccounts", () => {
 });
 
 describe("nextHostAccountChoices", () => {
+  it("saves a PR account subset without losing the host's existing login", () => {
+    const current = { "github.com": { enabled: true, account: "default" } };
+    const selected = nextHostAccountChoices(current, "github.com", {
+      pullRequestAccounts: ["personal", "work"],
+    });
+    expect(selected["github.com"]).toEqual({
+      enabled: true,
+      account: "default",
+      pullRequestAccounts: ["personal", "work"],
+    });
+    expect(nextHostAccountChoices(selected, "github.com", { pullRequestAccounts: null })).toEqual(
+      current,
+    );
+  });
+
   it("pins an account, keeps other hosts, and drops a host back on the CLI defaults", () => {
     const other = { "ghe.acme.test": { enabled: false } };
     const pinned = nextHostAccountChoices(other, "github.com", { account: "work" });

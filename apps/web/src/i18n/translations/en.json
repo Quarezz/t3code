@@ -1,4 +1,10 @@
 {
+  "7ec27b93651bc46a": "GitHub account",
+  "a79e362e42d1ae09": "All accounts",
+  "a7dc48fe322fc166": "Choose which signed-in accounts to include in Pull requests.",
+  "21672c06e02e6407": "None of the selected accounts are signed in.",
+  "1dd1fac5db4e79e9": "Use all signed-in accounts",
+  "7ef0646c7c3fa3a3": "Review requested for {account}",
   "6c6e16b9488f8b91": "Scroll to read all of it.",
   "035aab5e99159bd8": "{count, plural, one {… {hidden} character in the middle is not shown.} other {… {hidden} characters in the middle are not shown.}} The text ends with:",
   "011b1ef726fa9928": "Scroll each part to read all of it.",

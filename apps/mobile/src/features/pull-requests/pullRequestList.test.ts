@@ -244,6 +244,18 @@ describe("all-environment PR list", () => {
 });
 
 describe("mobile PR scan and filters", () => {
+  it("matches Authored and author:me against the repository's account", () => {
+    const rows = [entry(1, { viewerLogin: "Octocat" }), entry(2, { viewerLogin: "other" })];
+    const viewers = { "github.com": "other" };
+    for (const controls of [
+      { ...DEFAULT_PR_LIST_CONTROLS, involvement: "authored" as const },
+      { ...DEFAULT_PR_LIST_CONTROLS, filters: { author: "me" } },
+    ]) {
+      expect(
+        filterPullRequestList(rows, controls, viewers, "", new Set()).map((row) => row.number),
+      ).toEqual([1]);
+    }
+  });
   it("resolves authored and author:me per host rather than mixing account identities", () => {
     const rows = [entry(1), entry(2, { host: "enterprise.test" })];
     const viewers = { "github.com": "Octocat", "enterprise.test": "someone-else" };

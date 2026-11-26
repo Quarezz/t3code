@@ -39,6 +39,7 @@ function harness(
           fingerprint: `${host}:secret`,
         }),
       saved: () => Effect.succeedNone,
+      pullRequestAccounts: () => Effect.succeed({ accounts: [] }),
       fingerprint: (host, token) => Effect.succeed(`${host}:${token}`),
       invalidate: () =>
         Effect.sync(() => {

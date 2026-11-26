@@ -76,6 +76,10 @@ export const Route = createFileRoute("/_chat/pull-requests")({
     ...(raw.checks === "passing" || raw.checks === "failing" ? { checks: raw.checks } : {}),
     author:
       typeof raw.author === "string" ? sliceSearchText(raw.author.trim()) || undefined : undefined,
+    account:
+      typeof raw.account === "string"
+        ? sliceSearchText(raw.account.trim()) || undefined
+        : undefined,
     labels: pullRequestSearchLabels(raw.labels),
   }),
   component: PullRequestsPage,
