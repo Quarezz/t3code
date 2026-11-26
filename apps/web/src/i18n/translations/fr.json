@@ -1,4 +1,7 @@
 {
+  "5231b47e06049726": "Enter one host/owner=login per line. Repositories without a rule use the default login.",
+  "6344ce9d99279a16": "Pull request accounts",
+  "b152c242b67aec58": "Save pull request accounts",
   "6c6e16b9488f8b91": "Faites défiler pour tout lire.",
   "035aab5e99159bd8": "{count, plural, one {… {hidden} caractère au milieu n’est pas affiché.} other {… {hidden} caractères au milieu ne sont pas affichés.}} Le texte se termine par :",
   "011b1ef726fa9928": "Faites défiler chaque partie pour la lire en entier.",

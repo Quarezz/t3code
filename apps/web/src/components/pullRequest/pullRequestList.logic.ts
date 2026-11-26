@@ -225,7 +225,9 @@ export function pullRequestEntryViewer(
   entry: ScopedEntry,
   viewers: PullRequestViewers,
 ): string | null {
-  return normalize(viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host]);
+  return normalize(
+    entry.viewerLogin ?? viewers[pullRequestViewerKey(entry)] ?? viewers[entry.host],
+  );
 }
 
 function isAuthoredByViewer(entry: ScopedEntry, viewers: PullRequestViewers): boolean {

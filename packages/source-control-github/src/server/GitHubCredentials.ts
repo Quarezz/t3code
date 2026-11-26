@@ -31,6 +31,13 @@ import { makeGhProcess } from "./gitHubCliProcess.ts";
  */
 export const GH_PROCESS_CONCURRENCY = { key: "gh", limit: 4 } as const;
 
+export const PullRequestGitHubAccount = Context.Reference<{
+  readonly host: string;
+  readonly account: string;
+} | null>("@t3tools/source-control-github/server/PullRequestGitHubAccount", {
+  defaultValue: () => null,
+});
+
 const TOKEN_TTL = Duration.minutes(5);
 const MISSING_TTL = Duration.seconds(10);
 
@@ -179,6 +186,8 @@ export const make = Effect.gen(function* () {
         env: {
           GH_DEBUG: "",
           GH_PROMPT_DISABLED: "1",
+          GH_TOKEN: "",
+          GITHUB_TOKEN: "",
           GH_ENTERPRISE_TOKEN: "",
           GITHUB_ENTERPRISE_TOKEN: "",
         },
@@ -230,18 +239,20 @@ export const make = Effect.gen(function* () {
       Effect.map((token) => token.trim() || null),
     );
 
-  const cacheKey = (host: string, account: string | undefined) =>
-    account === undefined ? host : `${host}\u0000${account}`;
+  const cacheKey = (host: string, account: string | undefined, strict = false) =>
+    account === undefined ? host : `${host}\u0000${account}${strict ? "\u0000strict" : ""}`;
 
   const lookup = Effect.fn("GitHubCredentials.lookup")(function* (key: string) {
-    const [host = key, choice] = key.split("\u0000");
-    const fromEnv = environmentToken(host, environment);
+    const [host = key, choice, strict] = key.split("\u0000");
+    const fromEnv = strict === undefined ? environmentToken(host, environment) : null;
     const token =
       fromEnv ??
       (yield* fromGh(host, choice).pipe(
         Effect.catchTags({
           GitHubNotSignedInError: (error) =>
-            choice === undefined ? Effect.fail(error) : fromGh(host, undefined),
+            strict !== undefined || choice === undefined
+              ? Effect.fail(error)
+              : fromGh(host, undefined),
         }),
       ));
     return {
@@ -286,17 +297,27 @@ export const make = Effect.gen(function* () {
   return GitHubCredentials.of({
     get: Effect.fn("GitHubCredentials.get")(function* (rawHost) {
       const host = normalizeHost(rawHost);
+      const selected = yield* PullRequestGitHubAccount;
+      if (selected?.host === host) {
+        if ((yield* hostChoice(host))?.enabled === false) {
+          return yield* new GitHubHostDisabledError({ host });
+        }
+        return yield* Cache.get(cache, cacheKey(host, selected.account, true));
+      }
       const fromSettings = yield* saved(host);
       if (Option.isSome(fromSettings)) return fromSettings.value;
       return yield* Cache.get(cache, cacheKey(host, (yield* hostChoice(host))?.account));
     }),
     saved,
     fingerprint: fingerprintOf,
-    invalidate: Effect.fn("GitHubCredentials.invalidate")(function (rawHost) {
+    invalidate: Effect.fn("GitHubCredentials.invalidate")(function* (rawHost) {
       const host = normalizeHost(rawHost);
-      return hostChoice(host).pipe(
-        Effect.flatMap((choice) => Cache.invalidate(cache, cacheKey(host, choice?.account))),
-      );
+      const selected = yield* PullRequestGitHubAccount;
+      const key =
+        selected?.host === host
+          ? cacheKey(host, selected.account, true)
+          : cacheKey(host, (yield* hostChoice(host))?.account);
+      yield* Cache.invalidate(cache, key);
     }),
   });
 });

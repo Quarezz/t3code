@@ -418,6 +418,9 @@ export const make = Effect.gen(function* () {
     unavailableRequirement: UNAVAILABLE_REQUIREMENT,
     readsPublicHostWithoutCheckout: true,
     batchesReads: true,
+    ...(cli.repositoryCredentialScope === undefined
+      ? {}
+      : { repositoryCredentialScope: cli.repositoryCredentialScope }),
     mergeMessageRewrite: removeAgentCredits,
     getRoutingIdentity: (input) =>
       cli.getRoutingIdentity(input).pipe(Effect.mapError(fail("routeIdentity"))),

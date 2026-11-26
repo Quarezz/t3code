@@ -101,6 +101,38 @@ describe("GitHubCredentials", () => {
     vi.unstubAllEnvs();
   });
 
+  it.effect("uses the requested PR login and never falls back to a different account", () => {
+    vi.stubEnv("GH_TOKEN", "from-env");
+    const { layer, calls } = harness({}, ["signed-out"], { "github.com": "saved-token" });
+    return Effect.gen(function* () {
+      const credentials = yield* GitHubCredentials.GitHubCredentials;
+      const forAccount = (account: string) =>
+        credentials.get("github.com").pipe(
+          Effect.provideService(GitHubCredentials.PullRequestGitHubAccount, {
+            host: "github.com",
+            account,
+          }),
+        );
+      const [first, second] = yield* Effect.all([forAccount("first"), forAccount("second")], {
+        concurrency: "unbounded",
+      });
+      expect(Redacted.value(first.token)).toBe("token-for-first");
+      expect(Redacted.value(second.token)).toBe("token-for-second");
+      expect(first.fingerprint).not.toBe(second.fingerprint);
+      const result = yield* Effect.result(forAccount("signed-out"));
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "GitHubNotSignedInError", account: "signed-out" },
+      });
+      expect(Redacted.value((yield* credentials.get("github.com")).token)).toBe("saved-token");
+      expect(calls.map((args) => args.at(-1)).toSorted()).toEqual([
+        "first",
+        "second",
+        "signed-out",
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("lets an environment token win over a pinned account, as gh does", () => {
     vi.stubEnv("GH_TOKEN", "from-env");
     const { layer, calls } = harness({ "github.com": { account: "work" } });

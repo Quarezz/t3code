@@ -387,6 +387,7 @@ export const PullRequestListEntry = Schema.Struct({
   updatedAt: IsoDateTime,
   observedAt: Schema.optional(Schema.Finite),
   viewerReviewRequested: Schema.Boolean,
+  viewerLogin: Schema.optionalKey(TrimmedNonEmptyString),
   labels: Schema.Array(PullRequestLabel),
   reviewDecision: Schema.optional(PullRequestReviewDecision),
   checksState: Schema.optional(PullRequestChecksState),

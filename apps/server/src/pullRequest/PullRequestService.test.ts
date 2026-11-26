@@ -4,6 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as KeyValueStore from "effect/persistence/KeyValueStore";
 import { assert, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -2801,6 +2802,58 @@ it.effect("shares one cold viewer lookup across distinct concurrent lists", () =
 
     assert.strictEqual(viewerCalls, 1);
     assert.strictEqual(listCalls, 3);
+  }),
+);
+
+it.effect("lists authored PRs from two separately signed-in accounts on the same host", () =>
+  Effect.gen(function* () {
+    const login = Context.Reference("PullRequestService.test.account", {
+      defaultValue: () => "default",
+    });
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "personal", workspaceRoot: "/a", repository: "personal/a" }),
+        project({ id: "p2", title: "work", workspaceRoot: "/b", repository: "work/b" }),
+      ],
+      providers: [
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
+          repositoryCredentialScope: ({ repository }) => {
+            const key = repository.startsWith("personal/") ? "personal" : "work";
+            return Effect.succeed({
+              key,
+              provide: (effect) => Effect.provideService(effect, login, key),
+            });
+          },
+          getViewer: () => login,
+          listChangeRequestsAcross: ({ repositories, viewer }) =>
+            login.pipe(
+              Effect.map((account) => {
+                assert.strictEqual(viewer, account);
+                assert.isTrue(
+                  repositories.every((repository) => repository.startsWith(`${account}/`)),
+                );
+                return {
+                  items: repositories.map((repository) => ({
+                    ...batchedChangeRequest(1, repository, "2026-07-02T00:00:00Z"),
+                    author: { login: account, name: null, avatarUrl: null },
+                  })),
+                  truncated: false,
+                };
+              }),
+            ),
+        }),
+      ],
+    });
+    const authored = yield* service.list({ state: "open", involvement: "authored" });
+    assert.deepStrictEqual(
+      authored.entries.map((entry) => [entry.repository, entry.viewerLogin]).toSorted(),
+      [
+        ["personal/a", "personal"],
+        ["work/b", "work"],
+      ],
+    );
+    assert.lengthOf(authored.providers, 1);
+    assert.isTrue(authored.providers[0]?.configured);
   }),
 );
 

@@ -1,4 +1,7 @@
 {
+  "5231b47e06049726": "Enter one host/owner=login per line. Repositories without a rule use the default login.",
+  "6344ce9d99279a16": "Pull request accounts",
+  "b152c242b67aec58": "Save pull request accounts",
   "6c6e16b9488f8b91": "滚动以阅读全部内容。",
   "035aab5e99159bd8": "{count, plural, other {… 中间的 {hidden} 个字符未显示。}} 文本结尾为：",
   "011b1ef726fa9928": "滚动每个部分以阅读全部内容。",

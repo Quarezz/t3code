@@ -1,4 +1,7 @@
 import { isCommitSha, normalizeHost } from "@t3tools/source-control-core/server/pullRequestUtils";
+import type { PullRequestCredentialScope } from "@t3tools/source-control-core/server/PullRequestProvider";
+import { readSourceControlHostSettings } from "@t3tools/source-control-core/shared/definition";
+import { definition, pullRequestAccount, settings } from "../shared/definition.ts";
 import {
   diffFileSection,
   truncateLongDiffLines,
@@ -50,6 +53,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as GitHubAppAccess from "./GitHubAppAccess.ts";
+import { PullRequestGitHubAccount } from "./GitHubCredentials.ts";
 import * as GitHubRest from "./GitHubRest.ts";
 import * as GitHubPullRequestEvents from "./gitHubPullRequestEvents.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
@@ -519,6 +523,10 @@ export class GitHubPullRequestApi extends Context.Service<
       { readonly accountId: string; readonly viewer: string },
       GitHubPullRequestApiError
     >;
+    readonly repositoryCredentialScope?: (input: {
+      readonly repository: string;
+      readonly host: string;
+    }) => Effect.Effect<PullRequestCredentialScope | undefined>;
     readonly getViewerLogin: (input: {
       readonly cwd: string;
       readonly host: string;
@@ -1973,6 +1981,30 @@ export const make = Effect.gen(function* () {
   }).pipe(RequestResolver.batchN(FILES_VIEWED_PER_REQUEST));
 
   return GitHubPullRequestApi.of({
+    repositoryCredentialScope: Effect.fn("GitHubPullRequestApi.repositoryCredentialScope")(
+      function ({ host, repository }) {
+        return sourceControlHost.settings.get.pipe(
+          Effect.map((serverSettings): PullRequestCredentialScope | undefined => {
+            const rules = readSourceControlHostSettings(
+              settings,
+              serverSettings.sourceControlHosts[definition.kind],
+            ).pullRequestAccounts;
+            const account = pullRequestAccount(rules, host, repository);
+            if (account === undefined) return undefined;
+            const key = JSON.stringify([host, account.toLowerCase()]);
+            return {
+              key,
+              provide: (operation) =>
+                operation.pipe(
+                  Effect.provideService(PullRequestGitHubAccount, { host, account }),
+                  Effect.provideService(SourceControlRateLimit.CredentialScope, key),
+                ),
+            };
+          }),
+          Effect.orElseSucceed(() => undefined),
+        );
+      },
+    ),
     withVerifiedCredential,
     revalidateChecks,
     getRoutingIdentity,

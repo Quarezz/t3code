@@ -351,7 +351,15 @@ export interface ProviderRepositoryRef {
   readonly host: string;
 }
 
+export interface PullRequestCredentialScope {
+  readonly key: string;
+  readonly provide: <A, E, R>(operation: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+}
+
 export interface PullRequestProviderApi {
+  readonly repositoryCredentialScope?: (
+    input: Pick<ProviderRepositoryRef, "host" | "repository">,
+  ) => Effect.Effect<PullRequestCredentialScope | undefined>;
   readonly withVerifiedCredential?: <A, E, R>(
     /** `repository` lets a host pick the credential that can reach it. */
     input: { readonly cwd: string; readonly host: string; readonly repository?: string },

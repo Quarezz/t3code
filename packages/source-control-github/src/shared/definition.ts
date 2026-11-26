@@ -1,4 +1,5 @@
 import { makeProviderSettingsSchema, SourceControlProviderKind } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import {
   buildCommitUrl,
   changeRequestUrlBelow,
@@ -55,7 +56,33 @@ export const APP_SIGN_IN: SourceControlAppSignIn = {
   revokeUrl: "https://github.com/settings/apps/authorizations",
 };
 
-export const settings = makeProviderSettingsSchema(hostCredentialSettingsFields);
+const accountRule = /^([a-z\d.-]+(?::\d{1,5})?)\/([a-z\d-]+)\s*=\s*([a-z\d-]+)$/i;
+
+export function pullRequestAccount(rules: string | undefined, host: string, repository: string) {
+  const owner = repository.split("/")[0]?.toLowerCase();
+  for (const line of rules?.split("\n") ?? []) {
+    const rule = accountRule.exec(line.trim());
+    if (rule?.[1]?.toLowerCase() === host.toLowerCase() && rule[2]?.toLowerCase() === owner) {
+      return rule[3];
+    }
+  }
+}
+
+export const settings = makeProviderSettingsSchema({
+  ...hostCredentialSettingsFields,
+  pullRequestAccounts: Schema.optionalKey(
+    Schema.String.check(
+      Schema.makeFilter((value) =>
+        value.split("\n").every((line) => line.trim() === "" || accountRule.test(line.trim())),
+      ),
+    ),
+  ).annotateKey({
+    title: "Pull request accounts",
+    description:
+      "Use a GitHub CLI login for a repository owner. Enter one host/owner=login per line.",
+    providerSettingsForm: { control: "textarea", placeholder: "github.com/example-org=work-login" },
+  }),
+});
 export type GitHubSettings = typeof settings.Type;
 
 export const definition = defineSourceControl({
